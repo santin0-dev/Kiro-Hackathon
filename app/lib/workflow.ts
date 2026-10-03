@@ -6,8 +6,21 @@ export type Step = { id: string; kind: StepKind; title: string; owner: string; d
 export type Plan = { action: string; destination: string; due: string; bring: string; contact: string };
 export type Outcome = { kind: "diagnosis_confirmed" | "not_confirmed" | "more_assessment_needed"; diagnosis: string; explanation: string; followUp: string; followUpDue: string };
 export type AiDraft = { summary: string; patientExplanation: string; missingFields: string[]; evidenceIds: string[] };
-export const screeningSchema=z.object({chiefComplaint:z.string().trim().min(1).max(500),urgency:z.enum(["Routine","Urgent","Emergency"]),arm:z.enum(["Left","Right","Unknown"]),medications:z.string().max(500),allergies:z.string().max(500),glucose:z.object({value:z.number().positive(),unit:z.enum(["mg/dL","mmol/L"]),context:z.enum(["Fasting","Random","Unknown"]),measuredAt:z.string().datetime({offset:true})}).strict().nullable()}).strict();
+export const RED_FLAG_LABELS={chestPain:"Chest pain",breathing:"Difficulty breathing",unconscious:"Loss of consciousness",speech:"Difficulty speaking / slurred speech",face:"Facial asymmetry",weakness:"Sudden one-sided weakness / numbness"} as const;
+const answer=z.enum(["Yes","No","Not assessed"]);
+export const assessmentSchema=z.object({
+ assessmentDate:z.string().datetime({offset:true}),sex:z.enum(["Male","Female","Not recorded"]),civilStatus:z.enum(["Single","Married","Widowed","Other","Not recorded"]),address:z.string().trim().max(500),employment:z.enum(["Employed","Self-employed","Unemployed","Retired","Not recorded"]),
+ conditions:z.array(z.enum(["Hypertension","Diabetes","Asthma","Cancer","Kidney disease"])).max(5),conditionsAssessed:z.boolean(),familyHistory:z.array(z.enum(["Stroke","Heart attack","Diabetes","Hypertension","Kidney disease"])).max(5),familyAssessed:z.boolean(),
+ tobacco:z.enum(["Never used","Secondhand smoke exposure","Former smoker","Current smoker","Not assessed"]),alcohol:answer,binge:answer,exercise:answer,nutrition:answer,
+ heightCm:z.number().positive().max(300).nullable(),weightKg:z.number().positive().max(700).nullable(),waistCm:z.number().positive().max(400).nullable()
+}).strict();
+const redFlagsSchema=z.object({chestPain:answer,breathing:answer,unconscious:answer,speech:answer,face:answer,weakness:answer}).strict();
+export const screeningSchema=z.object({chiefComplaint:z.string().trim().min(1).max(500),urgency:z.enum(["Routine","Urgent","Emergency"]),arm:z.enum(["Left","Right","Unknown"]),medications:z.string().max(500),allergies:z.string().max(500),redFlags:redFlagsSchema.optional(),immediateAction:z.string().trim().max(500).optional(),assessment:assessmentSchema.optional(),glucose:z.object({value:z.number().positive(),unit:z.enum(["mg/dL","mmol/L"]),context:z.enum(["Fasting","Random","Unknown"]),measuredAt:z.string().datetime({offset:true})}).strict().nullable()}).strict().superRefine((value,ctx)=>{if(value.redFlags&&Object.values(value.redFlags).includes("Yes")){if(value.urgency!=="Emergency")ctx.addIssue({code:"custom",message:"Red flags require immediate assessment priority.",path:["urgency"]});if(!value.immediateAction?.trim())ctx.addIssue({code:"custom",message:"Record the immediate handoff action.",path:["immediateAction"]});}});
 export type Screening=z.infer<typeof screeningSchema>;
+export function hasRedFlags(c:Case):boolean{return !!c.screening?.redFlags&&Object.values(c.screening.redFlags).includes("Yes");}
+export function waistAboveReference(c:Case):boolean|null{const a=c.screening?.assessment;if(!a?.waistCm||a.sex==="Not recorded")return null;return a.waistCm>(a.sex==="Male"?90:80);}
+export function screeningMetrics(c:Case){const a=c.screening?.assessment;return {bpCount:c.readings.length,systolic:Math.round(c.readings.reduce((sum,r)=>sum+r.systolic,0)/c.readings.length),diastolic:Math.round(c.readings.reduce((sum,r)=>sum+r.diastolic,0)/c.readings.length),bmi:a?.heightCm&&a.weightKg?Math.round(a.weightKg/(a.heightCm/100)**2*10)/10:null};}
+
 export type Case = {
   id: string; name: string; age: number; barangay: string; screenedAt: string;
   readings: { systolic: number; diastolic: number; measuredAt: string }[];
@@ -41,9 +54,9 @@ const persistedCaseSchema = z.object({
   documents: z.array(z.object({ id: z.string(), name: z.string().max(200), mime: z.enum(["application/pdf","image/jpeg","image/png"]), dataUrl: z.string().max(700000).regex(/^data:(application\/pdf|image\/(jpeg|png));base64,[A-Za-z0-9+/=]+$/).optional(), storagePath: z.string().max(250).regex(/^[A-Za-z0-9/-]+$/).optional(), addedAt: z.string().datetime({offset:true}) }).strict().refine(d => !!d.dataUrl !== !!d.storagePath)).max(3).optional(),
   draft: z.object({ value: aiDraftSchema, source: z.string(), approved: z.boolean(), latencyMs: z.number(), cached: z.boolean() }).optional(),
 });
-export function parseSavedCases(value: unknown): Case[] | null { const result = z.array(persistedCaseSchema).min(1).max(500).safeParse(value); return result.success ? result.data : null; }
+export function parseSavedCases(value: unknown): Case[] | null { const result = z.array(persistedCaseSchema.refine(c=>!c.screening?.assessment||(c.age>=20&&c.readings.length>=2),"Adult expanded assessment requires age 20+ and at least two BP readings.")).min(1).max(500).safeParse(value); return result.success ? result.data : null; }
 
-export function aiInput(c: Case): AiInput { return { demo: true, readings: c.readings, history: c.screening ? `${c.history}\nMain concern: ${c.screening.chiefComplaint}\nBHW urgency: ${c.screening.urgency}\nMedicines: ${c.screening.medications}\nAllergies: ${c.screening.allergies}\nGlucose: ${c.screening.glucose ? JSON.stringify(c.screening.glucose) : "Not measured"}` : c.history, approvedPlan: c.plan, outcome: c.outcome }; }
+export function aiInput(c:Case):AiInput{const a=c.screening?.assessment,s=c.screening;const facts=s?[`Main concern: ${s.chiefComplaint}`,`BHW urgency: ${s.urgency}`,`Red flags: ${s.redFlags?JSON.stringify(s.redFlags):"Not assessed"}`,`Immediate handoff: ${s.immediateAction||"Not recorded"}`,a?`Adult assessment: ${JSON.stringify({sex:a.sex,conditions:a.conditionsAssessed?a.conditions:"Not assessed",family:a.familyAssessed?a.familyHistory:"Not assessed",tobacco:a.tobacco,alcohol:a.alcohol,binge:a.binge,exercise:a.exercise,nutrition:a.nutrition,heightCm:a.heightCm,weightKg:a.weightKg,waistCm:a.waistCm,bmi:screeningMetrics(c).bmi})}`:"",`Glucose: ${s.glucose?JSON.stringify(s.glucose):"Not measured"}`,`Medicines: ${s.medications}`,`Allergies: ${s.allergies}`,`History: ${c.history}`].filter(Boolean).join("\n"):c.history;return {demo:true,readings:c.readings,history:facts.slice(0,2000),approvedPlan:c.plan,outcome:c.outcome};}
 export function sourceOf(c: Case): string { return JSON.stringify(aiInput(c)); }
 export function validateDraft(value: unknown, input: AiInput): AiDraft {
   const draft = aiDraftSchema.parse(value);
@@ -148,6 +161,7 @@ export function availableSlots(cases:Case[], slots:string[], now = Date.now()):s
 }
 export function confirmAppointment(c:Case,cases:Case[],slot:string,slots:string[],role:Role,now=Date.now()):Case {
   if (role !== "Doctor") throw new Error("Hospital staff must accept the referral and confirm the slot.");
+  if(hasRedFlags(c))throw new Error("Red flags need immediate clinical assessment, not a routine appointment.");
   if (!isReferred(c)) throw new Error("The BHW must send this screening first.");
   if (c.status !== "awaiting_review" || c.plan) throw new Error("This referral is already handled.");
   if (!slots.includes(slot) || !availableSlots(cases,slots,now).includes(slot)) throw new Error("That slot is no longer available. Choose another.");
@@ -170,5 +184,5 @@ export function referCase(c:Case,role:Role,now=Date.now()):Case {
 export function routeScreening(c:Case,now=Date.now(),areas:ReadonlyArray<{name:string}>=DEMO_AREAS):Case {
   if(!areas.some(a=>a.name===c.barangay))throw new Error("No receiving hospital configured for this barangay.");
   if(c.referral)return c;
-  return event({...c,referral:{hospitalId:"demo-city-hospital",sentAt:new Date(now).toISOString()}},"BHW","Screening automatically routed to Demo City Hospital.");
+  return event({...c,referral:{hospitalId:"demo-city-hospital",sentAt:new Date(now).toISOString()}},"BHW",hasRedFlags(c)?"Immediate-assessment flag sent to Demo City Hospital. Digital routing does not confirm an emergency handoff.":"Screening automatically routed to Demo City Hospital.");
 }
