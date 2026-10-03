@@ -1,36 +1,21 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vitality minimum referral demo
 
-## Getting Started
+BHW screening and original documents → hospital acceptance and demo appointment → reviewed SMS instructions → assessment outcome returned to the BHW.
 
-First, run the development server:
+Run `npm run dev -- --hostname 127.0.0.1 --port 3000`.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Setup
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Run `supabase/setup.sql` in Supabase SQL Editor. Set server-only variables from `.env.example` in `.env.local` and restart Next.js. SUPABASE_URL and SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY) are required. The server seeds five fictional cases on first database read. Documents use a private Storage bucket. Case saves use version checks and a database unique appointment index. Earlier browser-local records remain untouched but are not imported.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+SNS uses AWS_SNS_REGION or AWS_REGION, registered AWS_SMS_SENDER_ID, verified recipients in AWS_SMS_ALLOWED_NUMBERS, and LOCAL_DEMO_SMS_ENABLED=true. Review the preview and recipient consent before sending. AWS acceptance does not confirm receipt. Persistent send records suppress duplicates even after server restart. Check AWS when a submission is unknown; no automatic retries.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Bedrock uses AWS_BEDROCK_REGION or AWS_REGION and AWS_BEDROCK_MODEL_ID, with LOCAL_DEMO_AI_ENABLED=true. Standard SDK server credential chain supports local profiles and environment credentials. Never expose credentials using NEXT_PUBLIC_. AI drafts summaries and approved-plan explanations, with clinician review. It does not select diagnosis, treatment or appointments.
 
-## Learn More
+## Limits
 
-To learn more about Next.js, take a look at the following resources:
+Localhost-only fictional demo; staff roles are simulated. No real authentication, hospital partner/scheduler, SMS replies, delivery receipts, real clinical care, document extraction or map. Do not deploy or enter real patient data without authentication and authorization.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Checks
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Lint, TypeScript and production build passed. Sixteen workflow/referral/SMS tests and one local PostgreSQL schema integration test passed. Hosted Supabase, private Storage and live AWS delivery/model output remain unverified until user setup. No SMS or model invocation was sent during these checks.
