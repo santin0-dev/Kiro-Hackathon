@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Share the configuration template; keep real environment files ignored.
 !.env.example
+
+# Local demo barangay registry
+/.data/

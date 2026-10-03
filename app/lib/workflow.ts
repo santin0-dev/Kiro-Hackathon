@@ -6,9 +6,12 @@ export type Step = { id: string; kind: StepKind; title: string; owner: string; d
 export type Plan = { action: string; destination: string; due: string; bring: string; contact: string };
 export type Outcome = { kind: "diagnosis_confirmed" | "not_confirmed" | "more_assessment_needed"; diagnosis: string; explanation: string; followUp: string; followUpDue: string };
 export type AiDraft = { summary: string; patientExplanation: string; missingFields: string[]; evidenceIds: string[] };
+export const screeningSchema=z.object({chiefComplaint:z.string().trim().min(1).max(500),urgency:z.enum(["Routine","Urgent","Emergency"]),arm:z.enum(["Left","Right","Unknown"]),medications:z.string().max(500),allergies:z.string().max(500),glucose:z.object({value:z.number().positive(),unit:z.enum(["mg/dL","mmol/L"]),context:z.enum(["Fasting","Random","Unknown"]),measuredAt:z.string().datetime({offset:true})}).strict().nullable()}).strict();
+export type Screening=z.infer<typeof screeningSchema>;
 export type Case = {
   id: string; name: string; age: number; barangay: string; screenedAt: string;
   readings: { systolic: number; diastolic: number; measuredAt: string }[];
+  screening?: Screening;
   phone?: string; referral?: { hospitalId: string; sentAt: string } | null;
   history: string; status: "awaiting_review" | "active" | "completed" | "declined";
   plan: Plan | null; outcome: Outcome | null; steps: Step[];
@@ -29,7 +32,8 @@ export const aiInputSchema = z.object({
 export type AiInput = z.infer<typeof aiInputSchema>;
 export const aiDraftSchema = z.object({ summary: z.string().min(1).max(1200), patientExplanation: z.string().max(1000), missingFields: z.array(z.string().max(150)).max(6), evidenceIds: z.array(z.enum(["readings", "history", "plan", "outcome"])).max(4) }).strict();
 const persistedCaseSchema = z.object({
-  id: z.string().min(1), name: z.string().min(1).max(100), age: z.number().int().min(18).max(120), barangay: z.string().min(1), screenedAt: z.string().datetime({ offset: true }),
+  id: z.string().min(1), name: z.string().min(1).max(100), age: z.number().int().min(0).max(120), barangay: z.string().min(1), screenedAt: z.string().datetime({ offset: true }),
+  screening: screeningSchema.optional(),
   phone: z.string().regex(/^\+639\d{9}$/).optional(), referral: z.object({hospitalId:z.literal("demo-city-hospital"),sentAt:z.string().datetime({offset:true})}).strict().nullable().optional(),
   readings: aiInputSchema.shape.readings, history: boundedText, status: z.enum(["awaiting_review", "active", "completed", "declined"]), plan: planSchema.nullable(), outcome: aiInputSchema.shape.outcome,
   steps: z.array(z.object({ id: z.string(), kind: z.enum(["attendance","assessment","communication","follow_up"]), title: z.string(), owner: z.string(), due: z.string().datetime({ offset: true }), state: z.enum(["pending","reported","confirmed"]), confirmedBy: z.enum(["BHW","Doctor","Patient","Supervisor"]).optional() })),
@@ -39,7 +43,7 @@ const persistedCaseSchema = z.object({
 });
 export function parseSavedCases(value: unknown): Case[] | null { const result = z.array(persistedCaseSchema).min(1).max(500).safeParse(value); return result.success ? result.data : null; }
 
-export function aiInput(c: Case): AiInput { return { demo: true, readings: c.readings, history: c.history, approvedPlan: c.plan, outcome: c.outcome }; }
+export function aiInput(c: Case): AiInput { return { demo: true, readings: c.readings, history: c.screening ? `${c.history}\nMain concern: ${c.screening.chiefComplaint}\nBHW urgency: ${c.screening.urgency}\nMedicines: ${c.screening.medications}\nAllergies: ${c.screening.allergies}\nGlucose: ${c.screening.glucose ? JSON.stringify(c.screening.glucose) : "Not measured"}` : c.history, approvedPlan: c.plan, outcome: c.outcome }; }
 export function sourceOf(c: Case): string { return JSON.stringify(aiInput(c)); }
 export function validateDraft(value: unknown, input: AiInput): AiDraft {
   const draft = aiDraftSchema.parse(value);
@@ -109,22 +113,26 @@ export function fixtures(): Case[] {
   const names = ["Elena Reyes", "Miguel Santos", "Luz Mendoza", "Ramon Cruz", "Ana Garcia", "Paolo Ramos"];
   return names.map((name, i) => {
     let c: Case = { id: `DEMO-${String(i + 1).padStart(3, "0")}`, name, age: 42 + i * 3, barangay: ["Demo Mabini", "Demo Malaya", "Demo Pag-asa"][i % 3], screenedAt: now.toISOString(), readings: [{ systolic: 142 + i * 2, diastolic: 88 + i, measuredAt: now.toISOString() }], history: "Fictional screening encounter. No diagnosis has been made from these readings.", status: "awaiting_review", plan: null, outcome: null, steps: [], events: [{ at: now.toISOString(), actor: "BHW", text: "Fictional screening submitted for clinician review." }] };
-    if (i > 0) c = savePlan(c, { action: "Clinic assessment of the recorded screening findings", destination: "Demo RHU — consultation desk", due, bring: "Referral code and any available previous records. No other preparation specified.", contact: "Ask your assigned BHW to confirm the clinic schedule.", }, "Doctor");
+    if (i > 0) c = savePlan(c, { action: "Clinic assessment of the recorded screening findings", destination: "Demo RHU â€” consultation desk", due, bring: "Referral code and any available previous records. No other preparation specified.", contact: "Ask your assigned BHW to confirm the clinic schedule.", }, "Doctor");
     if (i === 2) c = updateStep(c, `${c.id}-attendance`, "Patient", true);
     if (i === 3) { c = updateStep(c, `${c.id}-assessment`, "Doctor"); c = recordOutcome(c, { kind: "more_assessment_needed", diagnosis: "", explanation: "Fictional clinician: assessment is not yet conclusive.", followUp: "Arrange further assessment with the clinic; confirm the required details.", followUpDue: due }, "Doctor"); }
-    if (i === 4) { for (const s of c.steps.filter(s => s.kind !== "communication")) c = updateStep(c, s.id, "Doctor"); c = recordOutcome(c, { kind: "diagnosis_confirmed", diagnosis: "Hypertension — fictional clinician-entered outcome", explanation: "This is a simulated clinical outcome, not a diagnosis produced by the app.", followUp: "Contact the BHW to coordinate the clinician's ongoing follow-up plan.", followUpDue: due }, "Doctor"); c = updateStep(c, `${c.id}-communication`, "Doctor"); c = closeCase(c, "Doctor"); }
+    if (i === 4) { for (const s of c.steps.filter(s => s.kind !== "communication")) c = updateStep(c, s.id, "Doctor"); c = recordOutcome(c, { kind: "diagnosis_confirmed", diagnosis: "Hypertension â€” fictional clinician-entered outcome", explanation: "This is a simulated clinical outcome, not a diagnosis produced by the app.", followUp: "Contact the BHW to coordinate the clinician's ongoing follow-up plan.", followUpDue: due }, "Doctor"); c = updateStep(c, `${c.id}-communication`, "Doctor"); c = closeCase(c, "Doctor"); }
     if (i === 5) c = declineCase(c, "Doctor", "Fictional patient declined the next assessment; reason documented for demonstration.");
     return c;
   });
 }
 
 
-export const HOSPITAL = "Demo City Hospital — outpatient assessment desk";
+export const HOSPITAL = "Demo City Hospital â€” outpatient assessment desk";
 export const BRING = "Referral code and available previous medical records. No fasting or other preparation has been specified. Contact the hospital before attending if you need clarification.";
 export const CONTACT = "Simulated hospital desk: coordinate through your BHW. This is not a real booking.";
 export const DEMO_BARANGAY="Demo Mabini";
+export const DEMO_AREAS=[{name:"Demo Mabini",lat:14.60,lng:121.01},{name:"Demo Malaya",lat:14.61,lng:121.03},{name:"Demo Pag-asa",lat:14.62,lng:121.005}];
 export function referralFixtures(): Case[] {
-  return fixtures().slice(0,5).map(c => routeScreening({...c,barangay:DEMO_BARANGAY,status:"awaiting_review",referral:null,plan:null,outcome:null,steps:[],documents:[],draft:undefined,events:[{at:c.screenedAt,actor:"BHW",text:"Screening saved."}]}));
+  const base=fixtures().slice(0,5);
+  const names=["Carlo Demo Santos","Nina Demo Cruz","Jose Demo Ramos","Rosa Demo Lim","Luis Demo Tan","Mila Demo Perez","Leo Demo Garcia","Dina Demo Flores","Ben Demo Torres","Cora Demo Reyes"];
+  const extra=names.map((name,i)=>({...base[0],id:`DEMO-${String(i+6).padStart(3,"0")}`,name,age:i===0?12:i===1?17:30+i*4,readings:[{systolic:120+i,diastolic:75+i,measuredAt:base[0].screenedAt}]}));
+  return [...base,...extra].map((c,i)=>routeScreening({...c,barangay:DEMO_AREAS[i%DEMO_AREAS.length].name,status:"awaiting_review",referral:null,plan:null,outcome:null,steps:[],documents:[],draft:undefined,events:[{at:c.screenedAt,actor:"BHW",text:"Fictional screening saved."}]}));
 }
 // Fixed Manila business hours for the next day. These are illustrative slots,
 // not fetched from a hospital scheduler. Slot availability is browser-local.
@@ -159,8 +167,8 @@ export function referCase(c:Case,role:Role,now=Date.now()):Case {
 
 // Deterministic assignment to the configured demo receiving hospital.
 // This does not search for hospital capacity or confirm an appointment.
-export function routeScreening(c:Case,now=Date.now()):Case {
-  if(c.barangay!==DEMO_BARANGAY)throw new Error("No receiving hospital configured for this barangay.");
+export function routeScreening(c:Case,now=Date.now(),areas:ReadonlyArray<{name:string}>=DEMO_AREAS):Case {
+  if(!areas.some(a=>a.name===c.barangay))throw new Error("No receiving hospital configured for this barangay.");
   if(c.referral)return c;
   return event({...c,referral:{hospitalId:"demo-city-hospital",sentAt:new Date(now).toISOString()}},"BHW","Screening automatically routed to Demo City Hospital.");
 }

@@ -7,11 +7,11 @@ import { planSchema,sourceOf,isReferred,parseSavedCases,type Case } from "@/app/
 import { patientSms, sameAppointment, smsEstimate } from "@/app/lib/sms";
 export const runtime="nodejs";
 const input=z.object({demo:z.literal(true),phone:z.string().regex(/^\+639\d{9}$/),source:z.string().max(12000),code:z.string().regex(/^DEMO-[A-Z0-9-]{1,40}$/),plan:planSchema,retryAfterReportCheck:z.boolean().optional()}).strict();
-function config(){return {token:process.env.PHILSMS_API_TOKEN,sender:process.env.PHILSMS_SENDER_ID||"PhilSMS",enabled:process.env.LOCAL_DEMO_SMS_ENABLED==="true",allowed:(process.env.SMS_ALLOWED_NUMBERS||process.env.AWS_SMS_ALLOWED_NUMBERS||"").split(",").map(s=>s.trim()).filter(Boolean)};}
+function config(){return {token:process.env.PHILSMS_API_TOKEN,sender:process.env.PHILSMS_SENDER_ID||"PhilSMS",enabled:process.env.LOCAL_DEMO_SMS_ENABLED==="true"};}
 export async function GET(request:Request){
   if(!localRequest(request))return json({error:"Local demo only."},403);
   const cfg=config(),code=new URL(request.url).searchParams.get("case");
-  if(!code)return json({configured:!!(cfg.enabled&&cfg.token&&cfg.allowed.length),deliveryVerified:false,provider:"PhilSMS"});
+  if(!code)return json({configured:!!(cfg.enabled&&cfg.token),deliveryVerified:false,provider:"PhilSMS"});
   if(!/^DEMO-[A-Z0-9-]{1,40}$/.test(code))return json({error:"Invalid case."},400);
   try{
     const db=database();
@@ -33,11 +33,11 @@ export async function GET(request:Request){
 }
 export async function POST(request:Request) {
   if(!localRequest(request,true))return json({error:"Same-origin local demo only."},403);
-  const cfg=config();if(!cfg.enabled||!cfg.token||!cfg.sender||!cfg.allowed.length)return json({error:"Configure PHILSMS_API_TOKEN, SMS_ALLOWED_NUMBERS and LOCAL_DEMO_SMS_ENABLED. No SMS sent."},503);
+  const cfg=config();if(!cfg.enabled||!cfg.token||!cfg.sender)return json({error:"Configure PHILSMS_API_TOKEN and LOCAL_DEMO_SMS_ENABLED. No SMS sent."},503);
   let key="",reserved=false;
   try {
     const parsed=input.safeParse(await readJson(request,12000));if(!parsed.success)return json({error:"Saved instructions and patient phone number required."},400);
-    const p=parsed.data;if(!cfg.allowed.includes(p.phone))return json({error:"Number is not on the server demo allowlist."},403);
+    const p=parsed.data;
     const db=database();const row=await db.from("vitality_cases").select("payload").eq("id",p.code).single();
     if(row.error)throw new Error("DATABASE");
     const c=parseSavedCases([row.data.payload])?.[0];if(!c)throw new Error("DATABASE");if(!isReferred(c)||!c.plan||!["active","completed"].includes(c.status)||c.phone!==p.phone||sourceOf(c)!==p.source||!sameAppointment(c.plan,p.plan))return json({error:"Confirmed appointment changed or is unavailable. Refresh before sending."},409);
@@ -55,7 +55,7 @@ export async function POST(request:Request) {
       : await db.from("vitality_sms").insert({id:key,case_id:c.id,state:"pending"}).select("id");
     if(reserve.error || !reserve.data?.length)return json({error:"Another request already reserved this message, or SMS logging is unavailable. No new send attempted."},409);
     reserved=true;
-    const result=await sendPhilSms({token:cfg.token!,sender:cfg.sender,phone:p.phone,message,encoding:smsEstimate(message).encoding});
+    const result=await sendPhilSms({token:cfg.token!,sender:cfg.sender,phone:c.phone!,message,encoding:smsEstimate(message).encoding});
     const saved=await db.from("vitality_sms").update({state:"accepted",message_id:result.messageId}).eq("id",key);
     if(saved.error)return json({error:"PhilSMS accepted the SMS but database logging failed. Check PhilSMS; do not resend."},502);
     return json({messageId:result.messageId||key,messageIdKind:result.messageId?"provider":"local",status:"accepted",deliveryConfirmed:false});

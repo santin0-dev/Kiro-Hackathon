@@ -1,6 +1,7 @@
+import {readAreas} from "@/app/lib/area-registry";
 import { database, BUCKET } from "@/app/lib/db";
 import { json,localRequest,readJson } from "@/app/lib/local-api";
-import { parseSavedCases,referralFixtures,routeScreening,type Case } from "@/app/lib/workflow";
+import { parseSavedCases,referralFixtures,routeScreening,DEMO_AREAS,type Case } from "@/app/lib/workflow";
 import { z } from "zod";
 export const runtime="nodejs";
 function fail(e:unknown) {const msg=e instanceof Error ? e.message : "";return json({error:msg==="SUPABASE_SETUP" ? "Add SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) to .env.local; run supabase/setup.sql and restart Next.js." : msg==="TOO_LARGE" ? "Upload too large." : "Database operation failed. Check Supabase setup and connection. No success was reported."},msg==="TOO_LARGE"?413:503);}
@@ -9,8 +10,10 @@ export async function GET(request:Request) {
   try {
     const db=database();let result=await db.from("vitality_cases").select("payload,version").order("id").limit(500);
     if(result.error)throw new Error("DATABASE");
-    if(!result.data.length) {
-      const seed=await db.from("vitality_cases").upsert(referralFixtures().map(c=>({id:c.id,payload:c,status:c.status})),{onConflict:"id",ignoreDuplicates:true});
+    const existing=new Set(result.data.map(r=>r.payload.id));
+    const missing=referralFixtures().filter(c=>!existing.has(c.id));
+    if(missing.length) {
+      const seed=await db.from("vitality_cases").upsert(missing.map(c=>({id:c.id,payload:c,status:c.status})),{onConflict:"id",ignoreDuplicates:true});
       if(seed.error)throw new Error("DATABASE");result=await db.from("vitality_cases").select("payload,version").order("id").limit(500);
     }
     if(result.error || !result.data || !parseSavedCases(result.data.map(r=>r.payload)))throw new Error("DATABASE");
@@ -18,7 +21,7 @@ export async function GET(request:Request) {
     // Do not reassign records that already have a referral or clinical plan.
     for(const row of result.data){
       const patient=parseSavedCases([row.payload])?.[0];
-      if(patient?.referral===null && patient.barangay==="Demo Mabini" && patient.status==="awaiting_review" && !patient.plan){
+      if(patient?.referral===null && DEMO_AREAS.some(a=>a.name===patient.barangay) && patient.status==="awaiting_review" && !patient.plan){
         const routed=routeScreening(patient);
         const saved=await db.rpc("vitality_save_case",{p_id:patient.id,p_payload:routed,p_expected:row.version});
         if(saved.error)throw new Error("DATABASE");
@@ -39,7 +42,7 @@ export async function POST(request:Request) {
     if(body.expectedVersion!==null && previous.data?.version!==body.expectedVersion)return json({error:"Another user changed this case. Refresh and try again."},409);
     const old=previous.data?.payload as Case|undefined;
     if(!old){
-      try{c=routeScreening({...c,referral:null});}catch{return json({error:"No receiving hospital configured for this barangay. Screening was not saved."},400);}
+      try{c=routeScreening({...c,referral:null},Date.now(),await readAreas());}catch{return json({error:"No receiving hospital configured for this barangay. Screening was not saved."},400);}
     }
     const docs:NonNullable<Case["documents"]>=[];
     for(const d of c.documents||[]) {
