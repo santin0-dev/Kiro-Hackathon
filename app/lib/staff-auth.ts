@@ -1,0 +1,9 @@
+import "server-only";
+import {createServerClient} from "@supabase/ssr";
+import {cookies} from "next/headers";
+import {database} from "./db";
+import {approvedRole,type StaffRole} from "./staff-policy";
+import {json} from "./local-api";
+export async function authClient(){const jar=await cookies(),url=process.env.SUPABASE_URL||process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.SUPABASE_PUBLISHABLE_KEY||process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY||process.env.SUPABASE_ANON_KEY||process.env.SUPABASE_SECRET_KEY||process.env.SUPABASE_SERVICE_ROLE_KEY;if(!url||!key)throw new Error("Supabase authentication is not configured.");return createServerClient(url,key,{cookieOptions:{httpOnly:true,sameSite:"lax",secure:process.env.VERCEL==="1"||!!process.env.APP_ORIGIN,path:"/"},cookies:{getAll(){return jar.getAll();},setAll(values){for(const {name,value,options} of values)jar.set(name,value,options);}}});}
+export async function staffAccess(roles:StaffRole[]=["BHW","Doctor"]){try{const auth=await authClient(),result=await auth.auth.getUser();if(result.error||!result.data.user)return {denied:json({error:"Please log in."},401),user:null};const profile=await database().from("vitality_staff").select("name,email,role,approved").eq("auth_user_id",result.data.user.id).maybeSingle();if(profile.error)return {denied:json({error:"Staff access database unavailable."},503),user:null};const role=approvedRole(profile.data);if(!role||!roles.includes(role))return {denied:json({error:role?"Your workspace cannot perform this action.":"Your staff account is awaiting approval."},403),user:null};return {denied:null,user:{id:result.data.user.id,name:profile.data!.name,email:profile.data!.email,role}};}catch{return {denied:json({error:"Authentication service unavailable."},503),user:null};}}
+

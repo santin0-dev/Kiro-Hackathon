@@ -1,14 +1,3 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import {signIn,signUp,currentUser,signOut,workspace} from '../app/lib/demo-session.ts';
-function store(){const m=new Map();return {getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v),removeItem:k=>m.delete(k)};}
-test('dummy accounts open the correct workspaces and signup survives logout',()=>{
- globalThis.localStorage=store();globalThis.sessionStorage=store();
- assert.equal(workspace(signIn('BHW@DEMO.LOCAL').role),'/bhw');
- assert.equal(workspace(signIn('hospital@demo.local').role),'/hospital');
- const user=signUp('Test Nurse','nurse@demo.local','BHW');assert.deepEqual(currentUser(),user);
- assert.throws(()=>signUp('Other','nurse@demo.local','Doctor'));
- signOut();assert.equal(currentUser(),null);
- assert.equal(signIn('nurse@demo.local').role,'BHW');
- assert.throws(()=>signIn('missing@demo.local'));
-});
+import test from "node:test";import assert from "node:assert/strict";import {signIn,signUp,currentUser,signOut} from "../app/lib/demo-session.ts";
+test("password login and signup use server auth; pending signup does not open a workspace",async()=>{const original=globalThis.fetch;const calls=[];globalThis.fetch=async(url,options)=>{const body=options.body?JSON.parse(options.body):null;calls.push(body);if(body?.action==="signup")return Response.json({pending:true,message:"Awaiting approval"});return Response.json({user:options.method==="DELETE"?null:{name:"Test Nurse",email:"nurse@example.com",role:"BHW"}});};try{const u=await signIn("nurse@example.com","test-password");assert.equal(u.role,"BHW");assert.equal(calls[0].password,"test-password");assert.equal(await signUp("Nurse","nurse@example.com","BHW","test-password"),"Awaiting approval");await currentUser();await signOut();}finally{globalThis.fetch=original;}});
+test("unapproved or invalid credentials cannot log in",async()=>{const original=globalThis.fetch;globalThis.fetch=async()=>Response.json({error:"Awaiting approval"},{status:403});try{await assert.rejects(signIn("unknown@example.com","test-password"),/Awaiting approval/);}finally{globalThis.fetch=original;}});

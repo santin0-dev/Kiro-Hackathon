@@ -1,9 +1,12 @@
+import {staffAccess} from "@/app/lib/staff-auth";
 import { database,BUCKET } from "@/app/lib/db";
 import { json,localRequest } from "@/app/lib/local-api";
 import type { Case } from "@/app/lib/workflow";
 export const runtime="nodejs";
 export async function GET(request:Request) {
-  if(!localRequest(request))return json({error:"Local fictional demo only."},403);
+  const access=await staffAccess(["BHW","Doctor"]);if(access.denied)return access.denied;
+
+  if(!localRequest(request))return json({error:"Access denied. Use the configured app URL and demo login."},403);
   const query=new URL(request.url).searchParams;
   try {
     const db=database(),row=await db.from("vitality_cases").select("payload").eq("id",query.get("case")||"").single();

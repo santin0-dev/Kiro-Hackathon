@@ -1,3 +1,4 @@
+import {staffAccess} from "@/app/lib/staff-auth";
 import { sendPhilSms, checkPhilSms, PhilSmsRejected, philSmsReport } from "@/app/lib/philsms";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -9,7 +10,9 @@ export const runtime="nodejs";
 const input=z.object({demo:z.literal(true),phone:z.string().regex(/^\+639\d{9}$/),source:z.string().max(12000),code:z.string().regex(/^DEMO-[A-Z0-9-]{1,40}$/),plan:planSchema,retryAfterReportCheck:z.boolean().optional()}).strict();
 function config(){return {token:process.env.PHILSMS_API_TOKEN,sender:process.env.PHILSMS_SENDER_ID||"PhilSMS",enabled:process.env.LOCAL_DEMO_SMS_ENABLED==="true"};}
 export async function GET(request:Request){
-  if(!localRequest(request))return json({error:"Local demo only."},403);
+  const access=await staffAccess(["Doctor"]);if(access.denied)return access.denied;
+
+  if(!localRequest(request))return json({error:"Access denied. Use the configured app URL and demo login."},403);
   const cfg=config(),code=new URL(request.url).searchParams.get("case");
   if(!code)return json({configured:!!(cfg.enabled&&cfg.token),deliveryVerified:false,provider:"PhilSMS"});
   if(!/^DEMO-[A-Z0-9-]{1,40}$/.test(code))return json({error:"Invalid case."},400);
@@ -32,7 +35,9 @@ export async function GET(request:Request){
   }catch{return json({error:"Delivery report unavailable. No message was sent. Check PhilSMS reports."},502);}
 }
 export async function POST(request:Request) {
-  if(!localRequest(request,true))return json({error:"Same-origin local demo only."},403);
+  const access=await staffAccess(["Doctor"]);if(access.denied)return access.denied;
+
+  if(!localRequest(request,true))return json({error:"Access denied. Use the configured app URL and demo login."},403);
   const cfg=config();if(!cfg.enabled||!cfg.token||!cfg.sender)return json({error:"Configure PHILSMS_API_TOKEN and LOCAL_DEMO_SMS_ENABLED. No SMS sent."},503);
   let key="",reserved=false;
   try {

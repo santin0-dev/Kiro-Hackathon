@@ -1,3 +1,5 @@
+import {staffAccess} from "@/app/lib/staff-auth";
+import {localRequest} from "@/app/lib/local-api";
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { createHash } from "node:crypto";
 import { aiInputSchema, validateDraft, type AiDraft } from "@/app/lib/workflow";
@@ -7,23 +9,22 @@ export const runtime = "nodejs";
 const cache = new RequestCache<{ draft: AiDraft; inputTokens: number; outputTokens: number }>();
 let client: BedrockRuntimeClient | undefined;
 const promptVersion = "handoff-v2-1";
-const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 function response(body: unknown, status = 200) { return Response.json(body, { status, headers: { "Cache-Control": "no-store" } }); }
 function config() { return { region: process.env.AWS_BEDROCK_REGION || process.env.AWS_REGION, model: process.env.AWS_BEDROCK_MODEL_ID, enabled: process.env.LOCAL_DEMO_AI_ENABLED === "true" }; }
-export async function GET() {
+export async function GET(request:Request) {
+  const access=await staffAccess(["Doctor"]);if(access.denied)return access.denied;
+
+  if(!localRequest(request))return response({error:"Access denied."},403);
   const c = config();
-  return response({ configured: !!(c.region && c.model && c.enabled), model: c.model || null, region: c.region || null, mode: "local-fictional-demo", liveInvocationVerified: false });
+  return response({ configured: !!(c.region && c.model && c.enabled), model: c.model || null, region: c.region || null, mode: "fictional-demo", liveInvocationVerified: false });
 }
 export async function POST(request: Request) {
+  const access=await staffAccess(["Doctor"]);if(access.denied)return access.denied;
+
   const started = performance.now(); const c = config();
-  const url = new URL(request.url);
-  // No authentication has been implemented: this endpoint is deliberately localhost-only.
-  let origin: URL | null = null;
-  try { origin = new URL(request.headers.get("origin") || ""); } catch { /* missing or invalid Origin */ }
-  // Next may normalize request.url to localhost while the browser uses 127.0.0.1.
-  // Match the actual Host header, never an arbitrary forwarded host.
-  if (!origin || !localHosts.has(url.hostname) || !localHosts.has(origin.hostname) || origin.host !== request.headers.get("host")) return response({ error: "AI requests are restricted to the same-origin localhost demo." }, 403);
-  if (!c.enabled || !c.region || !c.model) return response({ error: "Bedrock is not configured. Set AWS_REGION, AWS_BEDROCK_MODEL_ID and LOCAL_DEMO_AI_ENABLED in .env.local. The manual plan still works." }, 503);
+  if(!localRequest(request,true))return response({error:"Access denied. Use the deployed app URL and demo login."},403);
+  if (!c.enabled || !c.region || !c.model) return response({ error: "Bedrock is not configured. Set AWS_REGION, AWS_BEDROCK_MODEL_ID and LOCAL_DEMO_AI_ENABLED in your server environment. The manual plan still works." }, 503);
   if (!request.headers.get("content-type")?.includes("application/json")) return response({ error: "JSON input required." }, 415);
   let body: string;
   try {

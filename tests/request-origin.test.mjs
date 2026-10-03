@@ -1,0 +1,4 @@
+import test from "node:test";import assert from "node:assert/strict";import {allowLocalRequest} from "../app/lib/request-origin.ts";
+const request=headers=>new Request("http://0.0.0.0:3000/api/cases",{method:"POST",headers});
+test("origin gate permits localhost and configured Vercel hosts without a shared password",()=>{assert.equal(allowLocalRequest(request({host:"localhost:3000",origin:"http://localhost:3000"}),true,{}),true);for(const host of ["app.vercel.app","build.vercel.app"])assert.equal(allowLocalRequest(request({host,origin:"https://"+host}),true,{productionUrl:"app.vercel.app",vercelUrl:"build.vercel.app"}),true);});
+test("origin gate still rejects cross-origin and unknown hosts",()=>{assert.equal(allowLocalRequest(request({host:"app.vercel.app",origin:"https://evil.test"}),true,{productionUrl:"app.vercel.app"}),false);assert.equal(allowLocalRequest(request({host:"evil.test",origin:"https://evil.test"}),true,{productionUrl:"app.vercel.app"}),false);});
