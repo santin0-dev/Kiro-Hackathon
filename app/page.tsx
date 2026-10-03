@@ -62,7 +62,7 @@ export default function Home(){
       if(phone&&!/^\+639\d{9}$/.test(phone))throw new Error("Use a Philippine phone number like +639171234567.");
       if(loadCases().length>=500)throw new Error("The demo patient limit has been reached.");
       const at=new Date().toISOString(),barangay=String(f.get("area"));
-      const documents=await readDocuments(f.getAll("documents").filter((value):value is File=>value instanceof File && value.size>0));
+      const documents=await readDocuments(f.getAll("documents").filter((value):value is File=>value instanceof File && value.name!==""));
       const patient:Case={id:`DEMO-${crypto.randomUUID().slice(0,8).toUpperCase()}`,name,age,barangay,screenedAt:at,readings:[{systolic,diastolic,measuredAt:at}],history:String(f.get("history")),...(phone?{phone}:{}),referral:null,status:"awaiting_review",plan:null,outcome:null,steps:[],documents,events:[{at,actor:"BHW",text:documents.length?"Screening saved with attached documents.":"Screening saved."}]};
       await commit([routeScreening(patient),...loadCases()]);setPatientsOpen(true);setSelected(patient.id);setCreate(false);setToast("Screening saved and routed to the hospital automatically.");
     }catch(e){setToast(e instanceof Error?e.message:"Could not save the screening.");}finally{saveLock.current=false;setSaving(false);}
