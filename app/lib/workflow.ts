@@ -9,6 +9,7 @@ export type AiDraft = { summary: string; patientExplanation: string; missingFiel
 export type Case = {
   id: string; name: string; age: number; barangay: string; screenedAt: string;
   readings: { systolic: number; diastolic: number; measuredAt: string }[];
+  phone?: string; referral?: { hospitalId: string; sentAt: string } | null;
   history: string; status: "awaiting_review" | "active" | "completed" | "declined";
   plan: Plan | null; outcome: Outcome | null; steps: Step[];
   events: { at: string; actor: Role; text: string }[];
@@ -29,6 +30,7 @@ export type AiInput = z.infer<typeof aiInputSchema>;
 export const aiDraftSchema = z.object({ summary: z.string().min(1).max(1200), patientExplanation: z.string().max(1000), missingFields: z.array(z.string().max(150)).max(6), evidenceIds: z.array(z.enum(["readings", "history", "plan", "outcome"])).max(4) }).strict();
 const persistedCaseSchema = z.object({
   id: z.string().min(1), name: z.string().min(1).max(100), age: z.number().int().min(18).max(120), barangay: z.string().min(1), screenedAt: z.string().datetime({ offset: true }),
+  phone: z.string().regex(/^\+639\d{9}$/).optional(), referral: z.object({hospitalId:z.literal("demo-city-hospital"),sentAt:z.string().datetime({offset:true})}).strict().nullable().optional(),
   readings: aiInputSchema.shape.readings, history: boundedText, status: z.enum(["awaiting_review", "active", "completed", "declined"]), plan: planSchema.nullable(), outcome: aiInputSchema.shape.outcome,
   steps: z.array(z.object({ id: z.string(), kind: z.enum(["attendance","assessment","communication","follow_up"]), title: z.string(), owner: z.string(), due: z.string().datetime({ offset: true }), state: z.enum(["pending","reported","confirmed"]), confirmedBy: z.enum(["BHW","Doctor","Patient","Supervisor"]).optional() })),
   events: z.array(z.object({ at: z.string().datetime({ offset: true }), actor: z.enum(["BHW","Doctor","Patient","Supervisor"]), text: z.string() })),
@@ -120,8 +122,9 @@ export function fixtures(): Case[] {
 export const HOSPITAL = "Demo City Hospital — outpatient assessment desk";
 export const BRING = "Referral code and available previous medical records. No fasting or other preparation has been specified. Contact the hospital before attending if you need clarification.";
 export const CONTACT = "Simulated hospital desk: coordinate through your BHW. This is not a real booking.";
+export const DEMO_BARANGAY="Demo Mabini";
 export function referralFixtures(): Case[] {
-  return fixtures().slice(0,5).map((c,i) => ({...c,barangay:i%2 ? "Demo Malaya" : "Demo Mabini",status:"awaiting_review",plan:null,outcome:null,steps:[],documents:[],draft:undefined,events:c.events.slice(0,1)}));
+  return fixtures().slice(0,5).map(c => routeScreening({...c,barangay:DEMO_BARANGAY,status:"awaiting_review",referral:null,plan:null,outcome:null,steps:[],documents:[],draft:undefined,events:[{at:c.screenedAt,actor:"BHW",text:"Screening saved."}]}));
 }
 // Fixed Manila business hours for the next day. These are illustrative slots,
 // not fetched from a hospital scheduler. Slot availability is browser-local.
@@ -137,8 +140,27 @@ export function availableSlots(cases:Case[], slots:string[], now = Date.now()):s
 }
 export function confirmAppointment(c:Case,cases:Case[],slot:string,slots:string[],role:Role,now=Date.now()):Case {
   if (role !== "Doctor") throw new Error("Hospital staff must accept the referral and confirm the slot.");
+  if (!isReferred(c)) throw new Error("The BHW must send this screening first.");
   if (c.status !== "awaiting_review" || c.plan) throw new Error("This referral is already handled.");
   if (!slots.includes(slot) || !availableSlots(cases,slots,now).includes(slot)) throw new Error("That slot is no longer available. Choose another.");
   const accepted = savePlan(c,{action:"Attend hospital assessment of the submitted screening and available records",destination:HOSPITAL,due:slot,bring:BRING,contact:CONTACT},role);
   return {...accepted,events:[...accepted.events,{at:new Date(now).toISOString(),actor:role,text:"Demo hospital accepted the referral and confirmed an illustrative appointment."}]};
+}
+
+// Older records were submitted automatically. Keep those referrals visible;
+// explicit null denotes a locally saved screening that has not been referred.
+export function isReferred(c:Case):boolean { return c.referral !== null; }
+export function hospitalCases(cases:Case[]):Case[] { return cases.filter(c=>isReferred(c) && (!c.referral || c.referral.hospitalId === "demo-city-hospital")); }
+export function referCase(c:Case,role:Role,now=Date.now()):Case {
+  if(role !== "BHW")throw new Error("Only the BHW can send a screening.");
+  if(isReferred(c) || c.status !== "awaiting_review")throw new Error("This screening has already been referred.");
+  return event({...c,referral:{hospitalId:"demo-city-hospital",sentAt:new Date(now).toISOString()}},role,"Screening and documents referred to Demo City Hospital.");
+}
+
+// Deterministic assignment to the configured demo receiving hospital.
+// This does not search for hospital capacity or confirm an appointment.
+export function routeScreening(c:Case,now=Date.now()):Case {
+  if(c.barangay!==DEMO_BARANGAY)throw new Error("No receiving hospital configured for this barangay.");
+  if(c.referral)return c;
+  return event({...c,referral:{hospitalId:"demo-city-hospital",sentAt:new Date(now).toISOString()}},"BHW","Screening automatically routed to Demo City Hospital.");
 }

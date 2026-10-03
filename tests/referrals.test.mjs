@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { referralFixtures, demoSlots, availableSlots, confirmAppointment } from '../app/lib/workflow.ts';
 import { parseSavedCases } from '../app/lib/workflow.ts';
 const now=Date.parse('2026-10-04T04:00:00Z');
-test('five patients, two barangays, all referrals await hospital acceptance',()=>{
-  const cases=referralFixtures(); assert.equal(cases.length,5); assert.equal(new Set(cases.map(c=>c.barangay)).size,2); assert.ok(cases.every(c=>c.status==='awaiting_review'&&!c.plan));
+test('five patients in one barangay are routed without inventing appointments',()=>{
+  const cases=referralFixtures(); assert.equal(cases.length,5); assert.equal(new Set(cases.map(c=>c.barangay)).size,1); assert.ok(cases.every(c=>c.status==='awaiting_review'&&!c.plan));
 });
 test('slot confirmation needs hospital acceptance and rejects occupied slots',()=>{
   const cases=referralFixtures(), slots=demoSlots(now);

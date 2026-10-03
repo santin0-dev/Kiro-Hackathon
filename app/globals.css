@@ -12,3 +12,105 @@
 .documents,.booking{padding:18px 22px;border-top:1px solid var(--line)}.documents h3,.booking p{margin-bottom:10px}.document-link{display:block;padding:12px;margin:8px 0;background:#eff4ed;border-radius:6px;overflow-wrap:anywhere}.documents input[type=file]{width:100%;min-width:0;font-size:12px!important}.booking .primary{margin:12px 0}.patient-mode .step small{display:block}
 
 .sms-panel{padding:20px}.sms-panel>p{margin:10px 0}.sms-preview{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;padding:16px;background:#f1f5ed;border-radius:8px;margin:14px 0}.sms-consent{display:flex;align-items:center;gap:10px;margin:14px 0}.sms-consent input{flex-shrink:0}.sms-panel input[type=tel]{width:100%}
+
+/* Readable staff interface: plain hierarchy, touch-sized actions and clear next step. */
+:root{--muted:#52675d}body{font-size:16px;line-height:1.65}.content{max-width:1450px}.page-heading h1{font-size:30px}.page-heading p:not(.eyebrow){font-size:15px}h2{font-size:20px}h3{font-size:17px}small{font-size:13px;color:var(--muted)}.panel-heading p,.plan-grid p,.clinical-facts p,.outcome-box p,.assistant-body p,.patient-explanation p{font-size:15px;line-height:1.65}.eyebrow,.plan-grid small,.clinical-facts small{font-size:12px;letter-spacing:.5px}.case-row strong,.queue-row strong{font-size:16px}.case-row small,.queue-row small,.queue-date,.list-foot{font-size:13px}.badge{font-size:12px;line-height:1.4;white-space:normal;padding:5px 9px}.primary,.secondary{font-size:14px;min-height:44px;padding:11px 16px}.field label,.field{font-size:14px}.field input,.field select,.field textarea,.filters input{font-size:16px;min-height:44px}.field textarea{min-height:100px}.field label{font-weight:600;color:var(--ink)}.role-control{font-size:13px}.role-control select{font-size:14px;min-height:44px}.nav-item{font-size:14px;min-height:48px}.demo-banner{font-size:12px}.demo-banner>span{font-size:10px}.demo-banner button{font-size:12px;min-height:44px}.next-action{background:#eaf3e9;border:1px solid #cddfcf;border-radius:10px;padding:18px 22px}.next-action small{font-size:12px;font-weight:700;letter-spacing:.5px;color:#315d45}.next-action p{font-size:16px;color:#243e31;margin-top:5px}.next-action span{display:block;font-size:13px;margin-top:8px}.step strong{font-size:15px}.step small,.step-state{font-size:13px;display:block}.step{gap:12px}.step>div{min-width:0}.step button{white-space:normal}.form-summary,.timeline summary,.sms-panel>summary{font-size:16px;min-height:48px;cursor:pointer;font-weight:600}.sms-panel{padding:0}.sms-panel>summary{padding:18px 22px}.sms-body{padding:0 22px 22px}.sms-body>p{margin:10px 0}.sms-setup{margin-top:14px;font-size:13px}.sms-setup summary{min-height:44px;cursor:pointer}.sms-body input[type=checkbox]{min-height:18px!important;width:18px;height:18px;accent-color:var(--green)}.sms-body .field input{display:block;margin-top:6px}.sms-preview{font-size:15px;line-height:1.7}.assessment-notice{padding:20px 23px;font-size:15px;color:var(--muted)}.timeline-row p,.timeline-row small{font-size:13px}.setup-hint,.muted,.closure p,.documents .muted,.booking .muted{font-size:13px;line-height:1.65}.document-link{font-size:15px}.form-grid{gap:18px}.danger{font-size:13px;min-height:44px}.toast{font-size:15px}.loading{max-width:780px;margin:auto}.loading p{margin:16px 0}.loading details{padding:16px;border:1px solid var(--line);border-radius:8px;margin-bottom:20px;overflow-wrap:anywhere}footer{font-size:12px}.modal form{padding:22px}.modal .bp-input{min-width:0}.modal .bp-input input{font-size:16px}.patient-title{font-size:23px}
+@media(max-width:850px){.content{padding-bottom:95px}.page-heading h1{font-size:26px}.next-action{padding:16px}.case-row{padding-top:17px;padding-bottom:17px}.clinical-facts{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.header-actions{min-width:0}.step{flex-wrap:wrap}.step button{margin-left:38px}.panel-heading{gap:12px}.sms-body{padding:0 18px 18px}.sms-panel>summary{padding:18px}.demo-banner{gap:8px}.mobile-nav button{font-size:15px}.queue-date{font-size:13px}}
+
+/* Distinct map-first BHW workspace and referral-only hospital inbox. */
+.staff-app{min-height:100vh;background:#f5f8f3;color:var(--ink)}
+.staff-header{min-height:76px;padding:14px 32px;display:flex;align-items:center;justify-content:space-between;background:white;border-bottom:1px solid var(--line);gap:16px}
+.staff-brand{font-size:28px;color:var(--green);letter-spacing:-1px}
+.staff-switch{display:flex;gap:4px;background:#edf3ed;border-radius:10px;padding:4px}
+.staff-switch button{border:0;border-radius:7px;min-height:44px;min-width:95px;background:transparent;color:#405b4c;font-size:15px;font-weight:600}
+.staff-switch button.selected{background:#fff;box-shadow:0 1px 5px #203b3218;color:var(--green)}
+.staff-content{max-width:1560px;margin:auto;padding:30px}
+.staff-workspace{display:grid;grid-template-columns:minmax(380px,1.1fr) minmax(400px,1fr);gap:24px;align-items:start}
+.hospital-app .staff-workspace{grid-template-columns:330px minmax(0,1fr)}
+.staff-right{display:flex;flex-direction:column;gap:18px;min-width:0}
+.map-panel,.referral-inbox{position:sticky;top:20px}
+.map-panel .area-map{height:430px;background:radial-gradient(ellipse at center,#e9f0e3,#dce8d5)}
+.barangay-label{background:white!important;color:#244f3e!important;border:0!important;border-radius:7px!important;padding:7px 10px!important;font-size:14px!important;font-weight:700;box-shadow:0 2px 8px #244f3e22;white-space:normal!important;text-align:center}
+.area-buttons{display:flex;padding:16px;gap:10px;flex-wrap:wrap}
+.area-buttons button{flex:1;min-width:130px;border:1px solid #ceddce;background:#fff;border-radius:8px;padding:12px;font-size:15px;color:#335743;text-align:left;min-height:64px}
+.area-buttons button.selected{border-color:var(--green);background:#e9f3e8;box-shadow:inset 0 0 0 1px var(--green)}
+.area-buttons span{display:block;font-size:13px;font-weight:400;margin-top:4px}
+.map-note{padding:0 20px 18px;font-size:13px;color:var(--muted)}
+.staff-workspace .case-list{display:block}
+.staff-workspace .case-row{padding:18px 20px}
+.staff-workspace .case-row strong{font-size:16px}
+.staff-workspace .case-row small{font-size:13px}
+.staff-workspace .clinical-facts{grid-template-columns:1fr;gap:14px}
+.selection-empty{padding:35px;min-height:250px;display:flex;flex-direction:column;justify-content:center}
+.selection-empty p{margin-top:12px;color:var(--muted)}
+.phone-form{padding:18px 22px;border-bottom:1px solid var(--line)}
+.phone-form label{display:block;font-size:14px;font-weight:600;margin-bottom:8px}
+.phone-form>div{display:flex;gap:10px;align-items:center}
+.phone-form input{font-size:16px;min-width:0;min-height:44px}
+.phone-form button{flex-shrink:0}
+.patient-phone{padding:16px 22px;font-size:15px;border-bottom:1px solid var(--line)}
+.referral-action{padding:22px;background:#edf6e9;border-top:1px solid var(--line)}
+.referral-action p{margin:9px 0 15px}
+.message-content{padding:18px 22px}
+.message-recipient{font-size:15px}
+.message-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
+.message-actions .text-button{min-height:44px;font-size:14px;text-decoration:underline}
+.message-status{font-size:14px;background:#edf4e8;padding:12px;border-radius:7px;margin-top:12px;overflow-wrap:anywhere}
+.connection-warning{padding:16px;background:#fff3dc;border:1px solid #e7d4ae;border-radius:8px;margin-bottom:20px;font-size:14px;overflow-wrap:anywhere}
+.connection-warning summary{min-height:44px;cursor:pointer}
+.writing-help>summary{padding:18px 22px;font-weight:600;cursor:pointer;min-height:48px}
+.writing-help>div{padding:0 22px 22px}
+.writing-help p{margin:12px 0;white-space:pre-wrap}
+.staff-app .toast{bottom:20px}
+.staff-app .documents input{font-size:14px!important}
+.staff-app .plan-grid p,.staff-app .outcome-box p{white-space:pre-wrap}
+button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #84b89b;outline-offset:3px}
+@media(max-width:1000px){.staff-workspace{grid-template-columns:minmax(300px,1fr) minmax(320px,1fr)}.hospital-app .staff-workspace{grid-template-columns:280px minmax(0,1fr)}.staff-content{padding:22px}.staff-header{padding:12px 22px}.map-panel .area-map{height:360px}.staff-workspace .plan-grid{grid-template-columns:1fr}}
+@media(max-width:750px){.staff-header{padding:12px 16px}.staff-brand{font-size:25px}.staff-content{padding:20px 14px}.staff-workspace,.hospital-app .staff-workspace{display:flex;flex-direction:column;gap:18px}.map-panel,.referral-inbox{position:static;width:100%}.staff-right{width:100%}.map-panel .area-map{height:310px}.patient-open .map-panel,.patient-open .referral-inbox{display:none}.phone-form>div{flex-direction:column;align-items:stretch}.phone-form button{align-self:flex-start}.area-buttons button{min-width:110px}.staff-content .page-heading{margin-bottom:22px}.staff-app .form-grid{grid-template-columns:1fr}.staff-app .step button{margin-left:38px}.staff-app .demo-banner{font-size:12px}.staff-app .toast{bottom:12px}.staff-app .selection-empty{min-height:160px}.message-actions{align-items:stretch;flex-direction:column}.message-actions .primary{width:100%}.staff-switch button{min-width:80px}.staff-workspace .case-list{display:block}}
+
+/* Visily-inspired minimal dashboard: circle map, patient side panel, popup details. */
+.bare-dashboard{display:grid;grid-template-columns:minmax(0,1fr);gap:28px;align-items:center;max-width:1040px;margin:50px auto;transition:max-width .2s ease}
+.bare-dashboard.patients-visible{max-width:none;grid-template-columns:minmax(0,1fr) minmax(340px,1fr);margin-top:28px;align-items:start}
+.bare-dashboard .map-panel{position:static;min-width:0;border-radius:12px}
+.bare-dashboard .area-map{height:470px;background-color:#f4f7f8;background-image:linear-gradient(#dce5e966 1px,transparent 1px),linear-gradient(90deg,#dce5e966 1px,transparent 1px);background-size:40px 40px}
+.bare-dashboard.patients-visible .area-map{height:360px}
+.bare-dashboard .map-note{font-size:12px;margin-top:10px}
+.map-open-button{display:block;margin:16px 20px 0;padding:10px 16px;min-height:44px;border:1px solid #04aec5;border-radius:7px;background:white;color:#087d8e;font-size:14px;font-weight:600}
+.patients-side{background:#eef1f5;min-width:0;max-height:calc(100dvh - 230px);overflow:auto}
+.patients-side>.panel-heading{border-bottom:0;background:transparent}
+.patients-side>.panel-heading h2{font-size:28px;font-weight:500}
+.patient-tools{padding:10px 20px 20px;display:flex;flex-direction:column;gap:12px}
+.patient-tools>div{display:flex;gap:10px;align-items:center}
+.patient-tools input,.patient-tools select{font-size:15px;min-height:44px}
+.patient-tools select{max-width:260px}
+.patient-tools .primary{background:#04b5ce;border-color:#04b5ce;flex-shrink:0}
+.patients-side .case-list{display:flex;flex-direction:column;gap:10px;padding:0 20px 24px}
+.patients-side .case-row{border:0;border-radius:12px;background:#fff;padding:15px;min-height:74px;box-shadow:0 1px 3px #203b3208}
+.patients-side .case-row:hover{background:#e9fcff}
+.patients-side .case-row strong{font-size:16px}
+.patients-side .avatar{background:#ddf7fb;color:#09778b}
+.patients-side .badge{font-size:12px}
+.patients-side .case-row small{display:none}
+.hospital-folders{max-width:1050px;margin:25px auto}
+.hospital-folders .patient-tools{flex-direction:row;flex-wrap:wrap;padding-top:20px}
+.hospital-folders .patient-tools input{flex:1;min-width:180px}
+.hospital-folders .case-list{display:block}
+.barangay-folder{border-top:1px solid var(--line)}
+.barangay-folder>summary{padding:18px 22px;font-size:16px;font-weight:600;cursor:pointer;display:flex;justify-content:space-between;gap:14px;background:#f5f8fa;min-height:55px}
+.barangay-folder>summary>span:last-child{font-size:13px;color:var(--muted);font-weight:400}
+.hospital-folders .case-row{width:100%;padding:16px 22px}
+.patient-popup-backdrop{z-index:1600}
+.patient-popup{width:min(900px,100%);max-height:92dvh;overflow:auto;background:#f5f8f3;border-radius:14px;box-shadow:0 24px 80px #17393240}
+.patient-popup-header{position:sticky;top:0;z-index:2;background:white;padding:18px 24px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:16px}
+.patient-popup-header small{font-size:11px;letter-spacing:.7px;color:#52675d}
+.patient-popup-header h2{font-size:24px;margin-top:3px}
+.patient-popup-content{padding:20px;display:flex;flex-direction:column;gap:18px}
+.patient-popup-content>.panel{flex-shrink:0}
+.patient-popup .clinical-facts{grid-template-columns:1fr 1fr}
+.patient-popup .step strong{font-size:15px}
+.patient-popup .step small{font-size:13px}
+.patient-popup .form-grid{grid-template-columns:1fr 1fr}
+.staff-header .staff-switch button.selected{color:#087f91}
+.staff-content>.page-heading .primary{background:#04b5ce;border-color:#04b5ce}
+@media(max-width:750px){.bare-dashboard,.bare-dashboard.patients-visible{display:flex;flex-direction:column;margin:20px auto;gap:18px;align-items:stretch}.bare-dashboard .map-panel{width:100%;display:block}.bare-dashboard .area-map{height:360px}.bare-dashboard.patients-visible .area-map{height:220px}.patients-side{max-height:none;width:100%}.patient-tools>div{flex-wrap:wrap}.patient-tools select{max-width:none;flex:1;min-width:150px}.patient-popup .clinical-facts,.patient-popup .form-grid{grid-template-columns:1fr}.patient-popup-content{padding:12px}.patient-popup-header{padding:14px 18px}.patient-popup{max-height:96dvh}.patient-popup-backdrop{padding:8px}.hospital-folders{margin-top:15px}.hospital-folders .patient-tools{flex-direction:column}.hospital-folders .patient-tools select{max-width:none}.patients-side>.panel-heading h2{font-size:24px}}
+@media(prefers-reduced-motion:reduce){.bare-dashboard{transition:none}}

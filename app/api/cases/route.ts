@@ -1,6 +1,6 @@
 import { database, BUCKET } from "@/app/lib/db";
 import { json,localRequest,readJson } from "@/app/lib/local-api";
-import { parseSavedCases,referralFixtures,type Case } from "@/app/lib/workflow";
+import { parseSavedCases,referralFixtures,routeScreening,type Case } from "@/app/lib/workflow";
 import { z } from "zod";
 export const runtime="nodejs";
 function fail(e:unknown) {const msg=e instanceof Error ? e.message : "";return json({error:msg==="SUPABASE_SETUP" ? "Add SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) to .env.local; run supabase/setup.sql and restart Next.js." : msg==="TOO_LARGE" ? "Upload too large." : "Database operation failed. Check Supabase setup and connection. No success was reported."},msg==="TOO_LARGE"?413:503);}
@@ -14,6 +14,17 @@ export async function GET(request:Request) {
       if(seed.error)throw new Error("DATABASE");result=await db.from("vitality_cases").select("payload,version").order("id").limit(500);
     }
     if(result.error || !result.data || !parseSavedCases(result.data.map(r=>r.payload)))throw new Error("DATABASE");
+    // Upgrade older, explicitly unsent demo screenings using optimistic versions.
+    // Do not reassign records that already have a referral or clinical plan.
+    for(const row of result.data){
+      const patient=parseSavedCases([row.payload])?.[0];
+      if(patient?.referral===null && patient.barangay==="Demo Mabini" && patient.status==="awaiting_review" && !patient.plan){
+        const routed=routeScreening(patient);
+        const saved=await db.rpc("vitality_save_case",{p_id:patient.id,p_payload:routed,p_expected:row.version});
+        if(saved.error)throw new Error("DATABASE");
+        if(saved.data?.length){row.payload=saved.data[0].payload;row.version=saved.data[0].version;}
+      }
+    }
     return json({rows:result.data});
   }catch(e){return fail(e);}
 }
@@ -22,11 +33,14 @@ export async function POST(request:Request) {
   const uploaded:string[]=[];
   try {
     const body=z.object({patient:z.unknown(),expectedVersion:z.number().int().positive().nullable()}).strict().parse(await readJson(request));
-    const c=parseSavedCases([body.patient])?.[0];if(!c || !/^DEMO-[A-Z0-9-]{1,40}$/.test(c.id))return json({error:"Invalid case."},400);
+    let c=parseSavedCases([body.patient])?.[0];if(!c || !/^DEMO-[A-Z0-9-]{1,40}$/.test(c.id))return json({error:"Invalid case."},400);
     const db=database();const previous=await db.from("vitality_cases").select("payload,version").eq("id",c.id).maybeSingle();
     if(previous.error)throw new Error("DATABASE");
     if(body.expectedVersion!==null && previous.data?.version!==body.expectedVersion)return json({error:"Another user changed this case. Refresh and try again."},409);
     const old=previous.data?.payload as Case|undefined;
+    if(!old){
+      try{c=routeScreening({...c,referral:null});}catch{return json({error:"No receiving hospital configured for this barangay. Screening was not saved."},400);}
+    }
     const docs:NonNullable<Case["documents"]>=[];
     for(const d of c.documents||[]) {
       if(d.storagePath) {const match=old?.documents?.find(item=>item.id===d.id&&item.storagePath===d.storagePath);if(!match)throw new Error("INVALID_DOCUMENT");docs.push(match);continue;}
