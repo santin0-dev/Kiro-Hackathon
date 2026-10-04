@@ -1,7 +1,7 @@
 import type { Case, Plan } from "./workflow";
 export function appointmentSms(code:string,plan:Plan):string {
   const when = new Date(plan.due).toLocaleString("en-PH",{timeZone:"Asia/Manila",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
-  return normalizeSmsText(`MEDMATCH DEMO - fictional appointment. Code: ${code}. Action: ${plan.action}. Where: ${plan.destination}. When: ${when} (Philippine time). Bring: ${plan.bring}. Contact: ${plan.contact}`);
+  return normalizeSmsText(`MedMatch | Appointment\nReference: ${code}\nPurpose: ${plan.action}\nLocation: ${plan.destination}\nDate: ${when} (PH time)\nPlease bring: ${plan.bring}\nContact: ${plan.contact}`);
 }
 
 // Compare appointment content independently of JSON property order.
@@ -25,5 +25,9 @@ export function patientSms(c:Case):string {
   if(!c.plan)throw new Error("Save hospital instructions before texting.");
   if(!c.outcome)return appointmentSms(c.id,c.plan);
   const when=new Date(c.outcome.followUpDue).toLocaleString("en-PH",{timeZone:"Asia/Manila",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
-  return normalizeSmsText(`MEDMATCH DEMO - fictional instructions. Code: ${c.id}. Next: ${c.outcome.followUp}. When: ${when} (Philippine time). Contact: ${c.plan.contact}`);
+  if(c.status==="completed"){
+    const result=c.outcome.kind==="diagnosis_confirmed"?`Diagnosis: ${c.outcome.diagnosis}`:"Condition not confirmed";
+    return normalizeSmsText(`MedMatch | Assessment Results\nReference: ${c.id}\n${result}\nAssessment: ${c.outcome.explanation}\nNext steps: ${c.outcome.followUp}\nFollow-up: ${when} (PH time)\nContact: ${c.plan.contact}`);
+  }
+  return normalizeSmsText(`MedMatch | Follow-up Instructions\nReference: ${c.id}\nNext steps: ${c.outcome.followUp}\nDate: ${when} (PH time)\nContact: ${c.plan.contact}`);
 }
