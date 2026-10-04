@@ -42,3 +42,19 @@ export async function commit(next:Case[]) {
     versions.set(saved.id,body.row.version);snapshot=snapshot.some(item=>item.id===saved.id)?snapshot.map(item=>item.id===saved.id?saved:item):[saved,...snapshot];emit();
   }catch(e){if(e instanceof Error&&["AbortError","TimeoutError","TypeError"].includes(e.name))throw new Error("Save could not be confirmed. Refresh and check the patient record before submitting again.");throw e;}finally{writing=false;if(conflict&&started===generation){try{await refreshCases();}catch{/* The original conflict remains visible; no overwrite was attempted. */}}}
 }
+export async function deleteCase(id:string){
+ if(writing)throw new Error("A save is already running. Wait for it to finish.");
+ const expectedVersion=versions.get(id);if(!expectedVersion)throw new Error("Refresh and select the patient again.");
+ const started=generation;writing=true;let conflict=false;
+ try{
+  if(inFlight)await inFlight;
+  if(started!==generation)throw new Error("Your session changed. Sign in again.");
+  if(versions.get(id)!==expectedVersion){conflict=true;throw new Error("This patient changed. Review the latest record before deleting.");}
+  const response=await fetch("/api/cases",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,expectedVersion}),signal:AbortSignal.timeout(30000)}),body=await response.json();
+  if(!response.ok){conflict=response.status===409;throw new Error(body.error||"Delete failed.");}
+  if(started!==generation)throw new Error("Session changed. Refresh to check whether the patient was deleted.");
+  if(body.deleted!==true)throw new Error("Deletion could not be confirmed.");
+  versions.delete(id);snapshot=snapshot.filter(c=>c.id!==id);emit();return body.warning as string;
+ }catch(e){if(e instanceof Error&&["AbortError","TimeoutError","TypeError"].includes(e.name))throw new Error("Deletion could not be confirmed. Refresh before trying again.");throw e;}
+ finally{writing=false;if(conflict&&started===generation){try{await refreshCases();}catch{}}}
+}

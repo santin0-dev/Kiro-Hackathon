@@ -1,10 +1,11 @@
 "use client";
 
+import Brand from "./brand";
 import dynamic from "next/dynamic";
 import {useRouter} from "next/navigation";
 import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore} from "react";
 import type {FormEvent,ReactNode} from "react";
-import {clearCases,loadCases,commit,subscribe,getServerSnapshot,refreshCases} from "../lib/case-store";
+import {deleteCase,clearCases,loadCases,commit,subscribe,getServerSnapshot,refreshCases} from "../lib/case-store";
 import {screeningSchema,hasRedFlags,RED_FLAG_LABELS,isReferred,hospitalCases,routeScreening,demoSlots,availableSlots,confirmAppointment,savePlan,updateStep,recordOutcome,closeCase,canClose,HOSPITAL,BRING,CONTACT,aiInput,sourceOf,validateDraft,approveDraft,type Case,type Outcome} from "../lib/workflow";
 import {RedFlagFields,ExpandedFields,AssessmentDetails} from "./expanded-screening";
 import type {MapAreaSelection} from "./metro-manila-map";
@@ -85,6 +86,14 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
     catch(e){setToast(e instanceof Error?e.message:"Could not save. Try again.");}
     finally{saveLock.current=false;setSaving(false);}
   }
+  async function removePatient(){
+    if(!c||saveLock.current||uploading||busy)return;
+    if(!window.confirm(`Delete ${c.name} and this patient screening record permanently? This removes the referral and attached documents. It cannot be undone.`))return;
+    saveLock.current=true;setSaving(true);
+    try{const warning=await deleteCase(c.id);setSelected(null);setToast(warning||"Patient deleted.");}
+    catch(e){setToast(e instanceof Error?e.message:"Could not delete the patient.");}
+    finally{saveLock.current=false;setSaving(false);}
+  }
   async function addCase(e:FormEvent<HTMLFormElement>){
     e.preventDefault();if(saveLock.current)return;const f=new FormData(e.currentTarget);saveLock.current=true;setSaving(true);
     try{
@@ -133,7 +142,7 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
   const attendanceDone=c?.steps.some(s=>s.kind==="attendance"&&s.state==="confirmed");
   const assessmentDone=c?.steps.some(s=>s.kind==="assessment"&&s.state==="confirmed");
   return <div className={`staff-app ${role==="BHW"?"bhw-app":"hospital-app"}`}>
-    <header className="staff-header"><strong className="staff-brand">vitality.</strong><div className="staff-user"><div><strong>{userName}</strong><small>{role==="BHW"?"BHW workspace":"Hospital workspace"}</small></div><button className="secondary" disabled={saving||uploading||busy} onClick={()=>void signOut().then(()=>{clearCases();router.replace("/login");}).catch(()=>setToast("Could not sign out. Try again."))}>Log out</button></div></header>
+    <header className="staff-header"><strong className="staff-brand"><Brand/></strong><div className="staff-user"><div><strong>{userName}</strong><small>{role==="BHW"?"BHW workspace":"Hospital workspace"}</small></div><button className="secondary" disabled={saving||uploading||busy} onClick={()=>void signOut().then(()=>{clearCases();router.replace("/login");}).catch(()=>setToast("Could not sign out. Try again."))}>Log out</button></div></header>
     <div className="demo-banner"><span>FICTIONAL DEMO</span> Simulated areas, patients and hospital appointments.<button onClick={()=>void refreshCases().catch(e=>setDbError(e instanceof Error?e.message:"Connection unavailable."))}>Refresh</button></div>
     <main className="staff-content" aria-busy={saving||uploading} inert={!!c||create||addingArea}>
       <div className="page-heading"><div><h1>{role==="BHW"?"Dashboard":"Hospital referrals"}</h1><p>{role==="BHW"?"Choose your barangay to view screened patients.":"Review patients sent to your hospital and tell them what to do next."}</p></div>{role==="BHW"&&<button className="primary" disabled={selectingArea} onClick={()=>{setSelected(null);setCreate(true);}}>+ Add patient</button>}</div>
@@ -145,7 +154,7 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
       {role==="BHW"&&<AvailableTimes times={freeSlots} loading={!casesLoaded} error={!!dbError}/>}
       {!cases.length&&!dbError&&<p role="status">No patients in the database yet.</p>}
     </main>
-    {c&&!create&&<PatientDialog onClose={()=>{if(!saving&&!uploading&&!busy)setSelected(null);}} name={c.name}><div className="patient-popup-content">
+    {c&&!create&&<PatientDialog onClose={()=>{if(!saving&&!uploading&&!busy)setSelected(null);}} name={c.name}><div className="patient-popup-content">{role==="BHW"&&<button className="secondary" style={{color:"#a33232",alignSelf:"flex-end"}} disabled={saving||uploading||busy} onClick={()=>void removePatient()}>Delete patient</button>}
             {hasRedFlags(c)&&<div className="connection-warning" role="alert"><strong>Immediate-assessment flag</strong><p>Routine appointment booking is disabled. Follow the immediate clinical handoff protocol; a saved record or SMS does not confirm that help has arrived.</p></div>}
             <section className="panel"><div className="panel-heading"><div><h2 className="patient-title">{c.name}</h2><p>{c.age} years - {c.barangay} - {c.id}</p></div><span className={`badge ${c.status}`}>{status(c)}</span></div><div className="clinical-facts"><div><small>BLOOD PRESSURE</small><strong>{c.readings.map(r=>`${r.systolic}/${r.diastolic}`).join(" - ")}<span> mmHg</span></strong></div><div><small>SYMPTOMS AND HISTORY</small><p>{c.history||"No history recorded."}</p></div></div>
               {c.screening&&<div className="documents"><h3>Referral screening</h3><p><strong>Main concern:</strong> {c.screening.chiefComplaint}</p><p><strong>BHW urgency:</strong> {c.screening.urgency}</p><p>BP measured: {date(c.readings[0].measuredAt)} - {c.screening.arm} arm</p><p><strong>Glucose:</strong> {c.screening.glucose?`${c.screening.glucose.value} ${c.screening.glucose.unit} - ${c.screening.glucose.context} - ${date(c.screening.glucose.measuredAt)}`:"Not measured"}</p><p><strong>Medicines:</strong> {c.screening.medications}</p><p><strong>Allergies:</strong> {c.screening.allergies}</p><p>Referred from {c.barangay} - {date(c.referral?.sentAt||c.screenedAt)}</p></div>}
@@ -157,7 +166,7 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
               {role==="BHW"&&c.status==="awaiting_review"&&!hasRedFlags(c)&&<AvailableTimes times={freeSlots} loading={!casesLoaded} error={!!dbError}/>}
               {c.plan&&<div className="plan-section"><h3>Hospital instructions</h3><div className="plan-grid"><div><small>WHAT TO DO</small><p>{c.plan.action}</p></div><div><small>WHERE TO GO</small><p>{c.plan.destination}</p></div><div><small>WHEN</small><p>{date(c.plan.due)}</p></div><div><small>WHAT TO BRING</small><p>{c.plan.bring}</p></div></div></div>}
               {c.outcome&&<div className="outcome-box"><h3>{resultLabels[c.outcome.kind]}</h3>{c.outcome.diagnosis&&<strong>{c.outcome.diagnosis}</strong>}<p>{c.outcome.explanation}</p><p><strong>Next:</strong> {c.outcome.followUp}</p><small>{date(c.outcome.followUpDue)}</small></div>}
-              {c.steps.length>0&&<div className="steps"><h3>{role==="BHW"?"Patient progress":"Visit progress"}</h3>{c.steps.map((s,i)=><div className="step" key={s.id}><span className={`step-number ${s.state==="confirmed"?"done":""}`}>{s.state==="confirmed"?"\u2713":i+1}</span><div><strong>{progressLabels[s.kind]}</strong><small>{s.title}</small><small>{date(s.due)} - {s.state==="confirmed"?"Done":"Not yet confirmed"}</small></div>{s.state!=="confirmed"&&c.status!=="declined"&&(c.status!=="completed"||s.kind==="follow_up")&&((role==="Doctor")||(s.kind==="attendance"||s.kind==="follow_up"))&&<button className="secondary" disabled={saving||(s.kind==="assessment"&&!attendanceDone)||(s.kind==="communication"&&!c.outcome)} onClick={()=>void change(item=>updateStep(item,s.id,role),"Progress updated.")}>{s.kind==="attendance"?"Confirm visit":s.kind==="assessment"?"Assessment done":s.kind==="communication"?"Results explained":"Follow-up done"}</button>}</div>)}</div>}
+              {c.steps.length>0&&<div className="steps"><h3>{role==="BHW"?"Patient progress":"Visit progress"}</h3>{c.steps.map((s,i)=><div className="step" key={s.id}><span className={`step-number ${s.state==="confirmed"?"done":""}`}>{s.state==="confirmed"?"\u2713":i+1}</span><div><strong>{progressLabels[s.kind]}</strong><small>{s.title}</small>{s.kind==="communication"&&!c.outcome&&<small>Save assessment results below to unlock this step.</small>}<small>{date(s.due)} - {s.state==="confirmed"?"Done":"Not yet confirmed"}</small></div>{s.state!=="confirmed"&&c.status!=="declined"&&(c.status!=="completed"||s.kind==="follow_up")&&((role==="Doctor")||(s.kind==="attendance"||s.kind==="follow_up"))&&<button className="secondary" disabled={saving||(s.kind==="assessment"&&!attendanceDone)||(s.kind==="communication"&&!c.outcome)} onClick={()=>void change(item=>updateStep(item,s.id,role),"Progress updated.")}>{s.kind==="attendance"?"Confirm visit":s.kind==="assessment"?"Assessment done":s.kind==="communication"?"Results explained":"Follow-up done"}</button>}</div>)}</div>}
             </section>
             {role==="Doctor"&&c.status==="awaiting_review"&&<section className="panel clinician-form"><form key={`${c.id}-plan`} onSubmit={book}><h2>Set the patient&apos;s next step</h2><p className="muted">Review the screening first. These instructions will be sent exactly as saved.</p><div className="form-grid"><label className="field">What to do<textarea name="action" defaultValue={hasRedFlags(c)?"Immediate clinical assessment required. Follow the recorded clinician handoff instructions.":"Attend hospital assessment of the recorded screening and available records."} required maxLength={500}/></label><label className="field">Hospital<input value={HOSPITAL} readOnly/></label>{hasRedFlags(c)?<p>Immediate assessment: record instructions for the clinical handoff, not a future appointment.</p>:<label className="field">Appointment (demo slots)<select name="due" required>{freeSlots.map(s=><option value={s} key={s}>{date(s)}</option>)}</select></label>}<label className="field">What to bring<textarea name="bring" defaultValue={BRING} required maxLength={500}/></label><label className="field">Who to contact<input name="contact" defaultValue={CONTACT} required maxLength={300}/></label></div><button className="primary" disabled={saving||(!hasRedFlags(c)&&!freeSlots.length)}>{saving?"Saving...":"Accept referral and save instructions"}</button>{!hasRedFlags(c)&&!freeSlots.length&&<p>No demo appointments are available.</p>}</form></section>}
             {role==="Doctor"&&c.plan&&c.status!=="declined"&&<SmsPanel key={`${c.id}-${sourceOf(c)}-${c.phone||""}`} patient={c} onAccepted={()=>setToast("Message submitted. Delivery status is shown below the send button.")}/>}

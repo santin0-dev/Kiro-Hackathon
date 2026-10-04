@@ -1,7 +1,7 @@
 import type { Case, Plan } from "./workflow";
 export function appointmentSms(code:string,plan:Plan):string {
   const when = new Date(plan.due).toLocaleString("en-PH",{timeZone:"Asia/Manila",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
-  return normalizeSmsText(`VITALITY DEMO - fictional appointment. Code: ${code}. Action: ${plan.action}. Where: ${plan.destination}. When: ${when} (Philippine time). Bring: ${plan.bring}. Contact: ${plan.contact}`);
+  return normalizeSmsText(`MEDMATCH DEMO - fictional appointment. Code: ${code}. Action: ${plan.action}. Where: ${plan.destination}. When: ${when} (Philippine time). Bring: ${plan.bring}. Contact: ${plan.contact}`);
 }
 
 // Compare appointment content independently of JSON property order.
@@ -25,5 +25,5 @@ export function patientSms(c:Case):string {
   if(!c.plan)throw new Error("Save hospital instructions before texting.");
   if(!c.outcome)return appointmentSms(c.id,c.plan);
   const when=new Date(c.outcome.followUpDue).toLocaleString("en-PH",{timeZone:"Asia/Manila",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
-  return normalizeSmsText(`VITALITY DEMO - fictional instructions. Code: ${c.id}. Next: ${c.outcome.followUp}. When: ${when} (Philippine time). Contact: ${c.plan.contact}`);
+  return normalizeSmsText(`MEDMATCH DEMO - fictional instructions. Code: ${c.id}. Next: ${c.outcome.followUp}. When: ${when} (Philippine time). Contact: ${c.plan.contact}`);
 }

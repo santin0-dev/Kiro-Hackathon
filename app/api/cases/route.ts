@@ -8,6 +8,20 @@ import { json,localRequest,readJson } from "@/app/lib/local-api";
 import { parseSavedCases,routeScreening,type Case } from "@/app/lib/workflow";
 import { z } from "zod";
 export const runtime="nodejs";
+export async function DELETE(request:Request){
+ const access=await staffAccess(["BHW"]);if(access.denied)return access.denied;
+ if(!localRequest(request,true))return json({error:"Refresh the app and retry."},403);
+ try{
+  const body=z.object({id:z.string().regex(/^DEMO-[A-Z0-9-]{1,40}$/),expectedVersion:z.number().int().positive()}).strict().parse(await readJson(request,2000));
+  const db=database(),result=await db.rpc("vitality_delete_case",{p_id:body.id,p_expected:body.expectedVersion});
+  if(result.error)return json({error:"Could not delete the patient. No success was reported."},503);
+  if(!result.data)return json({error:"This patient changed or was already deleted. Refresh and try again."},409);
+  const paths=(parseSavedCases([result.data])?.[0]?.documents||[]).flatMap(d=>d.storagePath?.startsWith(body.id+"/")?[d.storagePath]:[]);
+  let warning="";
+  if(paths.length){try{const cleanup=await db.storage.from(BUCKET).remove(paths);if(cleanup.error)warning="Patient deleted. Attachment cleanup needs an administrator."; }catch{warning="Patient deleted. Attachment cleanup needs an administrator.";}}
+  return json({deleted:true,warning});
+ }catch(e){return fail(e);}
+}
 function fail(e:unknown) {const msg=e instanceof Error ? e.message : "";return json({error:msg==="SUPABASE_SETUP" ? "Add SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) to .env.local; run supabase/setup.sql and restart Next.js." : msg==="TOO_LARGE" ? "Upload too large." : "Database operation failed. Check Supabase setup and connection. No success was reported."},msg==="TOO_LARGE"?413:e instanceof z.ZodError||e instanceof SyntaxError?400:503);}
 export async function GET(request:Request) {
   const access=await staffAccess(["BHW","Doctor"]);if(access.denied)return access.denied;
