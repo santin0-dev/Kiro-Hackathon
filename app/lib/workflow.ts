@@ -30,7 +30,7 @@ export type Case = {
   plan: Plan | null; outcome: Outcome | null; steps: Step[];
   events: { at: string; actor: Role; text: string }[];
   documents?: { id: string; name: string; mime: "application/pdf" | "image/jpeg" | "image/png"; dataUrl?: string; storagePath?: string; addedAt: string }[];
-  draft?: { value: AiDraft; source: string; approved: boolean; latencyMs: number; cached: boolean };
+  draft?: { value: AiDraft; source: string; approved: boolean; latencyMs: number; cached: boolean; generationMode?: "bedrock" | "recorded-facts"; warning?: string };
 };
 
 const boundedText = z.string().trim().max(2000);
@@ -52,7 +52,7 @@ const persistedCaseSchema = z.object({
   steps: z.array(z.object({ id: z.string(), kind: z.enum(["attendance","assessment","communication","follow_up"]), title: z.string(), owner: z.string(), due: z.string().datetime({ offset: true }), state: z.enum(["pending","reported","confirmed"]), confirmedBy: z.enum(["BHW","Doctor","Patient","Supervisor"]).optional() })),
   events: z.array(z.object({ at: z.string().datetime({ offset: true }), actor: z.enum(["BHW","Doctor","Patient","Supervisor"]), text: z.string() })),
   documents: z.array(z.object({ id: z.string(), name: z.string().max(200), mime: z.enum(["application/pdf","image/jpeg","image/png"]), dataUrl: z.string().max(700000).regex(/^data:(application\/pdf|image\/(jpeg|png));base64,[A-Za-z0-9+/=]+$/).optional(), storagePath: z.string().max(250).regex(/^[A-Za-z0-9/-]+$/).optional(), addedAt: z.string().datetime({offset:true}) }).strict().refine(d => !!d.dataUrl !== !!d.storagePath)).max(3).optional(),
-  draft: z.object({ value: aiDraftSchema, source: z.string(), approved: z.boolean(), latencyMs: z.number(), cached: z.boolean() }).optional(),
+  draft: z.object({ value: aiDraftSchema, source: z.string(), approved: z.boolean(), latencyMs: z.number(), cached: z.boolean(), generationMode:z.enum(["bedrock","recorded-facts"]).optional(),warning:z.string().max(500).optional() }).optional(),
 });
 export function parseSavedCases(value: unknown): Case[] | null { const result = z.array(persistedCaseSchema.refine(c=>!c.screening?.assessment||(c.age>=20&&c.readings.length>=2),"Adult expanded assessment requires age 20+ and at least two BP readings.")).min(1).max(500).safeParse(value); return result.success ? result.data : null; }
 
@@ -126,17 +126,17 @@ export function fixtures(): Case[] {
   const names = ["Elena Reyes", "Miguel Santos", "Luz Mendoza", "Ramon Cruz", "Ana Garcia", "Paolo Ramos"];
   return names.map((name, i) => {
     let c: Case = { id: `DEMO-${String(i + 1).padStart(3, "0")}`, name, age: 42 + i * 3, barangay: ["Demo Mabini", "Demo Malaya", "Demo Pag-asa"][i % 3], screenedAt: now.toISOString(), readings: [{ systolic: 142 + i * 2, diastolic: 88 + i, measuredAt: now.toISOString() }], history: "Fictional screening encounter. No diagnosis has been made from these readings.", status: "awaiting_review", plan: null, outcome: null, steps: [], events: [{ at: now.toISOString(), actor: "BHW", text: "Fictional screening submitted for clinician review." }] };
-    if (i > 0) c = savePlan(c, { action: "Clinic assessment of the recorded screening findings", destination: "Demo RHU â€” consultation desk", due, bring: "Referral code and any available previous records. No other preparation specified.", contact: "Ask your assigned BHW to confirm the clinic schedule.", }, "Doctor");
+    if (i > 0) c = savePlan(c, { action: "Clinic assessment of the recorded screening findings", destination: "Demo RHU \u2014 consultation desk", due, bring: "Referral code and any available previous records. No other preparation specified.", contact: "Ask your assigned BHW to confirm the clinic schedule.", }, "Doctor");
     if (i === 2) c = updateStep(c, `${c.id}-attendance`, "Patient", true);
     if (i === 3) { c = updateStep(c, `${c.id}-assessment`, "Doctor"); c = recordOutcome(c, { kind: "more_assessment_needed", diagnosis: "", explanation: "Fictional clinician: assessment is not yet conclusive.", followUp: "Arrange further assessment with the clinic; confirm the required details.", followUpDue: due }, "Doctor"); }
-    if (i === 4) { for (const s of c.steps.filter(s => s.kind !== "communication")) c = updateStep(c, s.id, "Doctor"); c = recordOutcome(c, { kind: "diagnosis_confirmed", diagnosis: "Hypertension â€” fictional clinician-entered outcome", explanation: "This is a simulated clinical outcome, not a diagnosis produced by the app.", followUp: "Contact the BHW to coordinate the clinician's ongoing follow-up plan.", followUpDue: due }, "Doctor"); c = updateStep(c, `${c.id}-communication`, "Doctor"); c = closeCase(c, "Doctor"); }
+    if (i === 4) { for (const s of c.steps.filter(s => s.kind !== "communication")) c = updateStep(c, s.id, "Doctor"); c = recordOutcome(c, { kind: "diagnosis_confirmed", diagnosis: "Hypertension \u2014 fictional clinician-entered outcome", explanation: "This is a simulated clinical outcome, not a diagnosis produced by the app.", followUp: "Contact the BHW to coordinate the clinician's ongoing follow-up plan.", followUpDue: due }, "Doctor"); c = updateStep(c, `${c.id}-communication`, "Doctor"); c = closeCase(c, "Doctor"); }
     if (i === 5) c = declineCase(c, "Doctor", "Fictional patient declined the next assessment; reason documented for demonstration.");
     return c;
   });
 }
 
 
-export const HOSPITAL = "Demo City Hospital â€” outpatient assessment desk";
+export const HOSPITAL = "Demo City Hospital \u2014 outpatient assessment desk";
 export const BRING = "Referral code and available previous medical records. No fasting or other preparation has been specified. Contact the hospital before attending if you need clarification.";
 export const CONTACT = "Simulated hospital desk: coordinate through your BHW. This is not a real booking.";
 export const DEMO_BARANGAY="Demo Mabini";
@@ -148,16 +148,18 @@ export function referralFixtures(): Case[] {
   return [...base,...extra].map((c,i)=>routeScreening({...c,barangay:DEMO_AREAS[i%DEMO_AREAS.length].name,status:"awaiting_review",referral:null,plan:null,outcome:null,steps:[],documents:[],draft:undefined,events:[{at:c.screenedAt,actor:"BHW",text:"Fictional screening saved."}]}));
 }
 // Fixed Manila business hours for the next day. These are illustrative slots,
-// not fetched from a hospital scheduler. Slot availability is browser-local.
-export function demoSlots(now = Date.now()): string[] {
+// not fetched from a hospital scheduler. Slot availability is checked against shared database cases; the database is authoritative.
+export function demoSlots(now = Date.now(), days = 1): string[] {
   const localDay = new Date(now + 8*3600000).toISOString().slice(0,10);
   const tomorrow = new Date(Date.parse(`${localDay}T00:00:00+08:00`) + 86400000);
   const day = new Date(tomorrow.getTime() + 8*3600000).toISOString().slice(0,10);
-  return [9,10,11,13,14].map(hour => new Date(`${day}T${String(hour).padStart(2,"0")}:00:00+08:00`).toISOString());
+  return Array.from({length:Math.max(1,Math.min(7,Math.floor(days)))},(_,i)=>{const next=new Date(Date.parse(`${day}T00:00:00+08:00`)+i*86400000+8*3600000).toISOString().slice(0,10);return [9,10,11,13,14].map(hour=>new Date(`${next}T${String(hour).padStart(2,"0")}:00:00+08:00`).toISOString());}).flat();
 }
 export function availableSlots(cases:Case[], slots:string[], now = Date.now()):string[] {
-  const booked = new Set(cases.filter(c => c.plan?.destination === HOSPITAL && ["active","completed"].includes(c.status)).map(c => c.plan!.due));
-  return slots.filter(slot => Date.parse(slot)>now && !booked.has(slot));
+  // The database enforces one slot per timestamp across this demo inbox.
+  // Display labels and equivalent timezone strings must not change availability.
+  const booked = new Set(cases.filter(c => c.plan && ["active","completed"].includes(c.status)).map(c => Date.parse(c.plan!.due)));
+  return slots.filter(slot => Date.parse(slot)>now && !booked.has(Date.parse(slot)));
 }
 export function confirmAppointment(c:Case,cases:Case[],slot:string,slots:string[],role:Role,now=Date.now()):Case {
   if (role !== "Doctor") throw new Error("Hospital staff must accept the referral and confirm the slot.");

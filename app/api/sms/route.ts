@@ -21,17 +21,17 @@ export async function GET(request:Request){
     const patient=await db.from("vitality_cases").select("payload").eq("id",code).single();
     if(patient.error)throw new Error("DATABASE");
     const c=patient.data.payload as Case;
-    if(!c.phone||!c.plan)return json({submission:"none",patientReceiptConfirmed:false});
+    if(!c.phone||!c.plan)return json({configured:!!(cfg.enabled&&cfg.token),submission:"none",patientReceiptConfirmed:false});
     const key=createHash("sha256").update(c.phone+patientSms(c)).digest("hex");
     const row=await db.from("vitality_sms").select("state,message_id").eq("id",key).maybeSingle();
     if(row.error)throw new Error("DATABASE");
-    if(!row.data)return json({submission:"none",patientReceiptConfirmed:false});
-    if(!row.data.message_id)return json({submission:row.data.state,patientReceiptConfirmed:false,warning:"No provider message ID saved. Check PhilSMS reports manually."});
-    if(!cfg.token)return json({submission:row.data.state,patientReceiptConfirmed:false});
+    if(!row.data)return json({configured:!!(cfg.enabled&&cfg.token),submission:"none",patientReceiptConfirmed:false});
+    if(!row.data.message_id)return json({configured:!!(cfg.enabled&&cfg.token),submission:row.data.state,patientReceiptConfirmed:false,warning:"No provider message ID saved. Check PhilSMS reports manually."});
+    if(!cfg.token)return json({configured:!!(cfg.enabled&&cfg.token),submission:row.data.state,patientReceiptConfirmed:false});
     try {
       const report=await philSmsReport(cfg.token,row.data.message_id);
-      return json({submission:row.data.state,providerStatus:report.status,providerType:report.type,segments:report.segments,patientReceiptConfirmed:false});
-    }catch{return json({submission:row.data.state,patientReceiptConfirmed:false,warning:"Provider delivery report unavailable. Submission status is saved; no new SMS was sent."});}
+      return json({configured:!!(cfg.enabled&&cfg.token),submission:row.data.state,providerStatus:report.status,providerType:report.type,segments:report.segments,patientReceiptConfirmed:false});
+    }catch{return json({configured:!!(cfg.enabled&&cfg.token),submission:row.data.state,patientReceiptConfirmed:false,warning:"Provider delivery report unavailable. Submission status is saved; no new SMS was sent."});}
   }catch{return json({error:"Delivery report unavailable. No message was sent. Check PhilSMS reports."},502);}
 }
 export async function POST(request:Request) {

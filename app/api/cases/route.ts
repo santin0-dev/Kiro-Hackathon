@@ -1,3 +1,5 @@
+import {sameSubmission} from "@/app/lib/same-submission";
+import {caseSaveError} from "@/app/lib/case-save-error";
 import {assertCaseWrite} from "@/app/lib/staff-policy";
 import {staffAccess} from "@/app/lib/staff-auth";
 import {readAreas} from "@/app/lib/area-registry";
@@ -6,7 +8,7 @@ import { json,localRequest,readJson } from "@/app/lib/local-api";
 import { parseSavedCases,routeScreening,type Case } from "@/app/lib/workflow";
 import { z } from "zod";
 export const runtime="nodejs";
-function fail(e:unknown) {const msg=e instanceof Error ? e.message : "";return json({error:msg==="SUPABASE_SETUP" ? "Add SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) to .env.local; run supabase/setup.sql and restart Next.js." : msg==="TOO_LARGE" ? "Upload too large." : "Database operation failed. Check Supabase setup and connection. No success was reported."},msg==="TOO_LARGE"?413:503);}
+function fail(e:unknown) {const msg=e instanceof Error ? e.message : "";return json({error:msg==="SUPABASE_SETUP" ? "Add SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) to .env.local; run supabase/setup.sql and restart Next.js." : msg==="TOO_LARGE" ? "Upload too large." : "Database operation failed. Check Supabase setup and connection. No success was reported."},msg==="TOO_LARGE"?413:e instanceof z.ZodError||e instanceof SyntaxError?400:503);}
 export async function GET(request:Request) {
   const access=await staffAccess(["BHW","Doctor"]);if(access.denied)return access.denied;
 
@@ -30,6 +32,7 @@ export async function POST(request:Request) {
     if(body.expectedVersion!==null && previous.data?.version!==body.expectedVersion)return json({error:"Another user changed this case. Refresh and try again."},409);
     const old=previous.data?parseSavedCases([previous.data.payload])?.[0]:undefined;
     if(previous.data&&!old)throw new Error("DATABASE");
+    if(body.expectedVersion===null&&old){if(access.user!.role==="BHW"&&sameSubmission(old,c))return json({row:previous.data,duplicateSuppressed:true});return json({error:"This case ID already exists with different information. Refresh to check the existing record."},409);}
     try{assertCaseWrite(access.user!.role,old,c);}catch(e){return json({error:e instanceof Error?e.message:"Action not permitted."},403);}
     if(!old){
       try{c=routeScreening({...c,referral:null},Date.now(),await readAreas());}catch{return json({error:"No receiving hospital configured for this barangay. Screening was not saved."},400);}
@@ -47,7 +50,7 @@ export async function POST(request:Request) {
     const save=await db.rpc("vitality_save_case",{p_id:c.id,p_payload:patient,p_expected:body.expectedVersion});
     if(save.error || !save.data?.length) {
       if(uploaded.length)await db.storage.from(BUCKET).remove(uploaded);
-      return json({error:save.error?.code==="23505" ? "Appointment slot or case ID already taken. Refresh and try again." : "Case changed or could not be saved. Refresh and try again."},409);
+      return json({error:caseSaveError(save.error)},!save.error||save.error.code==="23505"?409:503);
     }
     return json({row:{payload:save.data[0].payload,version:save.data[0].version}});
   }catch(e){if(uploaded.length){try{await database().storage.from(BUCKET).remove(uploaded);}catch{ /* orphan cleanup can be retried manually */ }}return fail(e);}
