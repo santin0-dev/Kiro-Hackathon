@@ -68,7 +68,7 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
       const response=await fetch("/api/areas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({barangay:selection.barangayName,city:selection.cityName,province:"Metro Manila",lat:selection.lat,lng:selection.lng}),signal:AbortSignal.timeout(15000)});
       const data=await response.json();
       let saved=data.area;
-      if(!response.ok){const refreshed=await fetch("/api/areas",{cache:"no-store"});const list=await refreshed.json();saved=list.areas?.find((a:{name:string})=>a.name===`${selection.barangayName}, ${selection.cityName}, Metro Manila`);if(!saved)throw new Error(data.error||"Could not select this barangay.");}
+      if(!response.ok){if(response.status===401||response.status===403)throw new Error(data.error||"Log in with your BHW account to select a new barangay.");const refreshed=await fetch("/api/areas",{cache:"no-store"});const list=await refreshed.json();saved=list.areas?.find((a:{name:string})=>a.name===`${selection.barangayName}, ${selection.cityName}, Metro Manila`);if(!saved)throw new Error(data.error||"Could not select this barangay.");}
       setAreas(current=>current.some(a=>a.name===saved.name)?current:[...current,saved]);
       if(version===mapSelectionVersion.current)selectArea(saved.name);
     }catch(e){if(version===mapSelectionVersion.current)setToast(e instanceof Error?e.message:"Could not select barangay.");}
