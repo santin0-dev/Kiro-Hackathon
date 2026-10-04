@@ -17,7 +17,7 @@ export default function SmsPanel({patient,onAccepted}:{patient:Case;onAccepted:(
       setConfigured(b.configured===true);
       setSubmission(b.submission||"none");
       if(b.providerStatus)setStatus(`Provider status: ${b.providerStatus}.${b.providerType==="voice"?" Unexpected voice report - ask the administrator to check.":""}`);
-      else setStatus(b.submission==="accepted"?"Submitted to the SMS provider. Delivery not confirmed.":b.submission==="pending"||b.submission==="unknown"?"Message status is uncertain. Ask the administrator to check before resending.":"");
+      else setStatus(b.submission==="accepted"?"Submitted to the SMS provider.":b.submission==="pending"||b.submission==="unknown"?"Message status is uncertain. Ask the administrator to check before resending.":"");
     }catch(e){if(!signal?.aborted){setSubmission("check_failed");setStatus(e instanceof Error?e.message:"Could not check message status.");}}
     finally{if(!signal?.aborted)setChecking(false);}
   },[patient.id]);
