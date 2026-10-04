@@ -7,6 +7,7 @@ import type {FormEvent,ReactNode} from "react";
 import {clearCases,loadCases,commit,subscribe,getServerSnapshot,refreshCases} from "../lib/case-store";
 import {screeningSchema,hasRedFlags,RED_FLAG_LABELS,isReferred,hospitalCases,routeScreening,demoSlots,availableSlots,confirmAppointment,savePlan,updateStep,recordOutcome,closeCase,canClose,HOSPITAL,BRING,CONTACT,aiInput,sourceOf,validateDraft,approveDraft,type Case,type Outcome} from "../lib/workflow";
 import {RedFlagFields,ExpandedFields,AssessmentDetails} from "./expanded-screening";
+import type {MapAreaSelection} from "./metro-manila-map";
 import AddBarangay from "./add-barangay";
 import SmsPanel from "./sms-panel";
 import {signOut,type DemoRole} from "../lib/demo-session";
@@ -40,6 +41,7 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
   const [create,setCreate]=useState(false);
   const [toast,setToast]=useState("");
   const [dbError,setDbError]=useState("");
+  const [casesLoaded,setCasesLoaded]=useState(false);
   const [saving,setSaving]=useState(false);
   const [uploading,setUploading]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -53,8 +55,27 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
   const slots=useMemo(()=>demoSlots(now,3),[now]);
   const freeSlots=useMemo(()=>availableSlots(cases,slots,now),[cases,slots,now]);
   const patientCounts=useMemo(()=>Object.fromEntries(areas.map(a=>[a.name,cases.filter(c=>c.barangay===a.name).length])),[areas,cases]);
-  const selectArea=useCallback((name:string)=>{setArea(name);setPatientsOpen(true);setSelected(null);setSearch("");},[]);
-  useEffect(()=>{const refresh=()=>void refreshCases().then(()=>setDbError("")).catch(e=>setDbError(e instanceof Error?e.message:"Connection unavailable."));refresh();const timer=setInterval(refresh,10000);return()=>clearInterval(timer);},[]);
+  const mapSelectionVersion=useRef(0);
+  const [selectingArea,setSelectingArea]=useState(false);
+  async function selectBoundary(selection:MapAreaSelection|null){
+    const version=++mapSelectionVersion.current;
+    if(!selection){setSelectingArea(false);setPatientsOpen(false);setArea("");setSelected(null);return;}
+    const canonicalName=`${selection.barangayName}, ${selection.cityName}, Metro Manila`;
+    const existing=areas.find(a=>a.name===canonicalName||(a.name===selection.name&&a.name.split(",")[0].trim()===selection.barangayName));
+    if(existing){setSelectingArea(false);selectArea(existing.name);return;}
+    setSelectingArea(true);
+    try{
+      const response=await fetch("/api/areas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({barangay:selection.barangayName,city:selection.cityName,province:"Metro Manila",lat:selection.lat,lng:selection.lng}),signal:AbortSignal.timeout(15000)});
+      const data=await response.json();
+      let saved=data.area;
+      if(!response.ok){const refreshed=await fetch("/api/areas",{cache:"no-store"});const list=await refreshed.json();saved=list.areas?.find((a:{name:string})=>a.name===`${selection.barangayName}, ${selection.cityName}, Metro Manila`);if(!saved)throw new Error(data.error||"Could not select this barangay.");}
+      setAreas(current=>current.some(a=>a.name===saved.name)?current:[...current,saved]);
+      if(version===mapSelectionVersion.current)selectArea(saved.name);
+    }catch(e){if(version===mapSelectionVersion.current)setToast(e instanceof Error?e.message:"Could not select barangay.");}
+    finally{if(version===mapSelectionVersion.current)setSelectingArea(false);}
+  }
+  const selectArea=useCallback((name:string)=>{mapSelectionVersion.current++;setSelectingArea(false);setArea(name);setPatientsOpen(true);setSelected(null);setSearch("");},[]);
+  useEffect(()=>{const refresh=()=>void refreshCases().then(()=>{setDbError("");setCasesLoaded(true);}).catch(e=>setDbError(e instanceof Error?e.message:"Connection unavailable."));refresh();const timer=setInterval(refresh,10000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),60000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(""),8000);return()=>clearTimeout(timer);},[toast]);
   async function change(fn:(c:Case)=>Case,message:string){
@@ -115,12 +136,13 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
     <header className="staff-header"><strong className="staff-brand">vitality.</strong><div className="staff-user"><div><strong>{userName}</strong><small>{role==="BHW"?"BHW workspace":"Hospital workspace"}</small></div><button className="secondary" disabled={saving||uploading||busy} onClick={()=>void signOut().then(()=>{clearCases();router.replace("/login");}).catch(()=>setToast("Could not sign out. Try again."))}>Log out</button></div></header>
     <div className="demo-banner"><span>FICTIONAL DEMO</span> Simulated areas, patients and hospital appointments.<button onClick={()=>void refreshCases().catch(e=>setDbError(e instanceof Error?e.message:"Connection unavailable."))}>Refresh</button></div>
     <main className="staff-content" aria-busy={saving||uploading} inert={!!c||create||addingArea}>
-      <div className="page-heading"><div><h1>{role==="BHW"?"Dashboard":"Hospital referrals"}</h1><p>{role==="BHW"?"Choose your barangay to view screened patients.":"Review patients sent to your hospital and tell them what to do next."}</p></div>{role==="BHW"&&<button className="primary" onClick={()=>{setSelected(null);setCreate(true);}}>+ Add patient</button>}</div>
+      <div className="page-heading"><div><h1>{role==="BHW"?"Dashboard":"Hospital referrals"}</h1><p>{role==="BHW"?"Choose your barangay to view screened patients.":"Review patients sent to your hospital and tell them what to do next."}</p></div>{role==="BHW"&&<button className="primary" disabled={selectingArea} onClick={()=>{setSelected(null);setCreate(true);}}>+ Add patient</button>}</div>
       {dbError&&<div className="connection-warning" role="status">Patient records could not refresh. <details><summary>Connection details</summary>{dbError}</details></div>}
       {role==="BHW"?<div className={`bare-dashboard ${patientsOpen?"patients-visible":""}`}>
-        <section className="panel map-panel"><div className="panel-heading"><h2>{area||"Choose or add a barangay"}</h2><span className="badge neutral">{cases.filter(c=>c.barangay===area).length} screened</span></div><AreaMap savedAreas={areas} patientCounts={patientCounts} selectedBarangayId={null} onAreaSelect={selection=>{if(selection)selectArea(selection.name);else{setPatientsOpen(false);setArea("");setSelected(null);}}}/><button className="map-open-button" onClick={()=>setAddingArea(true)}>Add barangay</button><div className="area-buttons">{areas.map(a=><button key={a.name} className={a.name===area?"selected":""} onClick={()=>selectArea(a.name)}>{a.name}<span>{cases.filter(c=>c.barangay===a.name).length} patients</span></button>)}</div><button className="map-open-button" disabled={!area} onClick={()=>selectArea(area)}>View patients in this barangay</button><p className="map-note">Click a city, then a barangay. Saved areas outside Metro Manila remain available using the buttons above. Unregistered boundaries have no saved patients.</p></section>
-        {patientsOpen&&<section className="panel patients-side"><div className="panel-heading"><h2>Patients</h2><button className="icon-button" aria-label="Close patient panel" onClick={()=>setPatientsOpen(false)}>&times;</button></div><div className="patient-tools"><input aria-label="Search patients" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or patient code..."/><div><StatusFilter value={filter} onChange={setFilter}/><button className="primary" onClick={()=>{setSelected(null);setCreate(true);}}>+ Add patient</button></div></div><PatientList patients={visible} selected={selected} onSelect={setSelected}/></section>}
+        <section className="panel map-panel"><div className="panel-heading"><h2>{area||"Choose or add a barangay"}</h2><span className="badge neutral">{cases.filter(c=>c.barangay===area).length} screened</span></div>{selectingArea&&<p role="status">Selecting barangay...</p>}<AreaMap savedAreas={areas} patientCounts={patientCounts} selectedBarangayId={null} onAreaSelect={selection=>void selectBoundary(selection)}/><button className="map-open-button" onClick={()=>setAddingArea(true)}>Add barangay</button><div className="area-buttons">{areas.map(a=><button key={a.name} className={a.name===area?"selected":""} onClick={()=>selectArea(a.name)}>{a.name}<span>{cases.filter(c=>c.barangay===a.name).length} patients</span></button>)}</div><button className="map-open-button" disabled={!area} onClick={()=>selectArea(area)}>View patients in this barangay</button><p className="map-note">Click a city, then a barangay. Saved areas outside Metro Manila remain available using the buttons above. Selecting a new barangay saves its name and approximate location for this demo. New screenings use the selected barangay automatically.</p></section>
+        {patientsOpen&&<section className="panel patients-side"><div className="panel-heading"><h2>Patients</h2><button className="icon-button" aria-label="Close patient panel" onClick={()=>setPatientsOpen(false)}>&times;</button></div><div className="patient-tools"><input aria-label="Search patients" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or patient code..."/><div><StatusFilter value={filter} onChange={setFilter}/><button className="primary" disabled={selectingArea} onClick={()=>{setSelected(null);setCreate(true);}}>+ Add patient</button></div></div><PatientList patients={visible} selected={selected} onSelect={setSelected}/></section>}
       </div>:<section className="panel hospital-folders"><div className="panel-heading"><h2>Patients sent to your hospital</h2><span className="badge neutral">{visible.length}</span></div><div className="patient-tools"><input aria-label="Search hospital patients" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or patient code..."/><StatusFilter value={filter} onChange={setFilter}/></div>{Array.from(new Set(visible.map(c=>c.barangay))).map(name=><details className="barangay-folder" key={name} open><summary><span><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{display:"inline-block",verticalAlign:"middle",marginRight:8}}><path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/></svg>{name}</span><span>{visible.filter(c=>c.barangay===name).length} patients</span></summary><PatientList patients={visible.filter(c=>c.barangay===name)} selected={selected} onSelect={setSelected}/></details>)}{!visible.length&&<p className="empty">No matching referrals.</p>}</section>}
+      {role==="BHW"&&<AvailableTimes times={freeSlots} loading={!casesLoaded} error={!!dbError}/>}
       {!cases.length&&!dbError&&<p role="status">No patients in the database yet.</p>}
     </main>
     {c&&!create&&<PatientDialog onClose={()=>{if(!saving&&!uploading&&!busy)setSelected(null);}} name={c.name}><div className="patient-popup-content">
@@ -132,6 +154,7 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
               <div className="documents"><h3>Documents</h3>{c.documents?.map(doc=><a className="document-link" key={doc.id} href={doc.storagePath?`/api/documents?case=${encodeURIComponent(c.id)}&document=${encodeURIComponent(doc.id)}`:doc.dataUrl} download={doc.name}>{doc.name}</a>)}{!c.documents?.length&&<p className="muted">No documents attached.</p>}{role==="BHW"&&<label className="field">Add PDF or photos (up to 3, 500 KB each)<input type="file" accept="application/pdf,image/jpeg,image/png" multiple disabled={uploading||saving} onChange={e=>{void attach(Array.from(e.target.files||[]));e.target.value="";}}/></label>}</div>
 
               {role==="BHW"&&isReferred(c)&&!c.plan&&<div className="plan-section"><h3>Sent to hospital</h3><p>Waiting for the hospital to review the screening and confirm the next step.</p></div>}
+              {role==="BHW"&&c.status==="awaiting_review"&&!hasRedFlags(c)&&<AvailableTimes times={freeSlots} loading={!casesLoaded} error={!!dbError}/>}
               {c.plan&&<div className="plan-section"><h3>Hospital instructions</h3><div className="plan-grid"><div><small>WHAT TO DO</small><p>{c.plan.action}</p></div><div><small>WHERE TO GO</small><p>{c.plan.destination}</p></div><div><small>WHEN</small><p>{date(c.plan.due)}</p></div><div><small>WHAT TO BRING</small><p>{c.plan.bring}</p></div></div></div>}
               {c.outcome&&<div className="outcome-box"><h3>{resultLabels[c.outcome.kind]}</h3>{c.outcome.diagnosis&&<strong>{c.outcome.diagnosis}</strong>}<p>{c.outcome.explanation}</p><p><strong>Next:</strong> {c.outcome.followUp}</p><small>{date(c.outcome.followUpDue)}</small></div>}
               {c.steps.length>0&&<div className="steps"><h3>{role==="BHW"?"Patient progress":"Visit progress"}</h3>{c.steps.map((s,i)=><div className="step" key={s.id}><span className={`step-number ${s.state==="confirmed"?"done":""}`}>{s.state==="confirmed"?"\u2713":i+1}</span><div><strong>{progressLabels[s.kind]}</strong><small>{s.title}</small><small>{date(s.due)} - {s.state==="confirmed"?"Done":"Not yet confirmed"}</small></div>{s.state!=="confirmed"&&c.status!=="declined"&&(c.status!=="completed"||s.kind==="follow_up")&&((role==="Doctor")||(s.kind==="attendance"||s.kind==="follow_up"))&&<button className="secondary" disabled={saving||(s.kind==="assessment"&&!attendanceDone)||(s.kind==="communication"&&!c.outcome)} onClick={()=>void change(item=>updateStep(item,s.id,role),"Progress updated.")}>{s.kind==="attendance"?"Confirm visit":s.kind==="assessment"?"Assessment done":s.kind==="communication"?"Results explained":"Follow-up done"}</button>}</div>)}</div>}
@@ -146,6 +169,9 @@ export default function StaffDashboard({role,userName}:{role:DemoRole;userName:s
     {create&&role==="BHW"&&<div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="new-screening"><div className="panel-heading"><h2 id="new-screening">Record screening</h2><button className="icon-button" aria-label="Close" disabled={saving} onClick={()=>setCreate(false)}>&times;</button></div><ScreeningForm onSubmit={addCase} saving={saving} area={area} areas={areas}/></section></div>}
     {toast&&<div className="toast" role="status">{toast}<button aria-label="Dismiss message" onClick={()=>setToast("")}>&times;</button></div>}
   </div>;
+}
+function AvailableTimes({times,loading,error}:{times:string[];loading:boolean;error:boolean}){
+  return <section className="panel available-times"><div className="panel-heading"><h2>Available appointment times (demo)</h2></div>{error?<p role="status">Availability could not refresh. Try refreshing before checking times.</p>:loading?<p role="status">Checking available times...</p>:times.length?<ul aria-label="Available appointment times">{times.map(slot=><li key={slot}><time dateTime={slot}>{date(slot)}</time></li>)}</ul>:<p>No available times.</p>}<p className="muted">Philippine time. The hospital confirms the booking.</p></section>;
 }
 function PatientList({patients,selected,onSelect}:{patients:Case[];selected:string|null;onSelect:(id:string)=>void}){
   return <div className="case-list">{patients.map(c=><button key={c.id} className={`case-row ${selected===c.id?"active-row":""}`} onClick={()=>onSelect(c.id)}><span className="avatar">{c.name.split(" ").map(n=>n[0]).join("")}</span><div><strong>{c.name}</strong><small>{c.barangay}</small><span className={`badge ${c.status}`}>{status(c)}</span></div><span className="chevron">&rsaquo;</span></button>)}{!patients.length&&<p className="empty">No patients here yet.</p>}</div>;

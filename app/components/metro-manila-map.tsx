@@ -50,6 +50,8 @@ export interface MapAreaSelection {
   name: string;
   cityId: string;
   cityName: string;
+  barangayName:string;
+  lat:number;lng:number;
 }
 
 export interface MetroManilaMapProps {
@@ -177,7 +179,7 @@ export function MetroManilaMap({ savedAreas, patientCounts, selectedBarangayId, 
             setMessage(`Barangay boundary shapes are not available for ${name} in this prototype.`);
             return;
           }
-          const boundaryLayers = new Map<string, { name: string; geometry:unknown; count: number; layer: SelectableBoundaryLayer }>();
+          const boundaryLayers = new Map<string, { name: string; barangayName:string; geometry:unknown; count: number; layer: SelectableBoundaryLayer }>();
           const layer = L.geoJSON(data as Parameters<typeof L.geoJSON>[0], {
             style: (feature) => {
               const matched=areasInBoundary(feature?.geometry,areasRef.current);
@@ -196,7 +198,7 @@ export function MetroManilaMap({ savedAreas, patientCounts, selectedBarangayId, 
               const matched=areasInBoundary(feature?.geometry,areasRef.current);
               const count=matched.reduce((sum,a)=>sum+(countsRef.current[a.name]||0),0);
               const selectableLayer = barangayLayer as SelectableBoundaryLayer;
-              boundaryLayers.set(barangayId, { name: matched.length===1?matched[0].name:`${barangayName}, ${name}`, geometry:feature.geometry, count, layer: selectableLayer });
+              boundaryLayers.set(barangayId, { name: matched.length===1?matched[0].name:`${barangayName}, ${name}`, barangayName, geometry:feature.geometry, count, layer: selectableLayer });
               barangayLayer.bindTooltip(()=>{const count=areasInBoundary(feature.geometry,areasRef.current).reduce((sum,a)=>sum+(countsRef.current[a.name]||0),0);const label=document.createElement("span");label.textContent=`${barangayName} · ${count} screened patient${count===1?"":"s"}`;return label;});
               barangayLayer.on("click", () => selectBarangayRef.current(barangayId));
             },
@@ -207,7 +209,8 @@ export function MetroManilaMap({ savedAreas, patientCounts, selectedBarangayId, 
             selectedRef.current=barangayId;setSelectedBarangay(barangayId);
             const currentAreas=areasInBoundary(selected.geometry,areasRef.current);
             const chosenName=currentAreas.length===1?currentAreas[0].name:selected.name;
-            onAreaSelectRef.current({ id: barangayId, name: chosenName, cityId: id, cityName: name });
+            const center=selected.layer.getBounds?.().getCenter();
+            if(center)onAreaSelectRef.current({ id: barangayId, name: chosenName, cityId: id, cityName: name,barangayName:selected.barangayName,lat:center.lat,lng:center.lng });
             setMessage(currentAreas.length>1?"Multiple saved areas fall inside this boundary. Choose a saved barangay below.":currentAreas.length===0?"No saved barangay is registered in this boundary. No patients have been linked.":`Showing patients in ${chosenName}.`);
             for (const [candidateId, candidate] of boundaryLayers) {
               candidate.count=areasInBoundary(candidate.geometry,areasRef.current).reduce((sum,a)=>sum+(countsRef.current[a.name]||0),0);
